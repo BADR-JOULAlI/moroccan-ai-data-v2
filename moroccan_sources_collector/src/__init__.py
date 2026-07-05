@@ -1,0 +1,1 @@
+"""Moroccan sources collector package."""

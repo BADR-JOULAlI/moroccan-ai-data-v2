@@ -1,0 +1,10 @@
+[project]
+name = "moroccan-sources-collector"
+version = "0.1.0"
+description = "Catalogue collector for Moroccan Arabic, Darija, and Morocco-related AI training sources."
+requires-python = ">=3.11"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+addopts = "-q"

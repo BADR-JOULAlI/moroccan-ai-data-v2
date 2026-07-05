@@ -1,0 +1,11 @@
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+data/cache/*.json
+data/intermediate/*.jsonl
+data/output/*.jsonl
+data/output/*.csv
+data/output/*.xlsx
+logs/*.log
+logs/*.jsonl

@@ -1,0 +1,229 @@
+version: "2.0"
+
+arabic:
+  strong:
+    واش: 4.0
+    شنو: 4.0
+    اشنو: 4.0
+    أشنو: 4.0
+    علاش: 4.0
+    كيفاش: 4.0
+    دابا: 4.0
+    بزاف: 4.0
+    ديال: 4.0
+    ماكاينش: 4.0
+    فوقاش: 4.0
+    كيداير: 4.0
+    شكون: 4.0
+    آش: 4.0
+    اش: 4.0
+  medium:
+    غادي: 2.5
+    كاين: 2.5
+    حيت: 2.5
+    هادشي: 2.5
+    هاد: 2.0
+    بغيت: 2.5
+    بغا: 2.5
+    خاصني: 2.5
+    خاصك: 2.5
+    مزيان: 2.5
+    زوين: 2.5
+    بحال: 2.5
+    شوية: 2.5
+    والو: 2.5
+    صافي: 2.5
+    يلاه: 2.5
+    الحانوت: 2.5
+    الزنقة: 2.5
+    مول: 2.5
+    درهم: 2.0
+    بركا: 2.0
+    نوض: 2.0
+    سير: 2.0
+    جي: 2.0
+    تسنى: 2.5
+    عيط: 2.5
+    هضر: 2.5
+    خدم: 2.0
+    فين: 2.5
+    شحال: 2.5
+    سمحلي: 2.5
+    لاباس: 2.0
+  weak:
+    مرحبا: 1.0
+    عندي: 1.0
+    عندك: 1.0
+    غير: 1.0
+    باقي: 1.0
+    سلام: 0.5
+    شكرا: 0.5
+    نتا: 1.0
+    نتي: 1.0
+    حنا: 1.0
+
+latin:
+  strong:
+    wach: 4.0
+    chno: 4.0
+    chnou: 4.0
+    achno: 4.0
+    achnou: 4.0
+    3lach: 4.0
+    kifach: 4.0
+    daba: 4.0
+    bzaf: 4.0
+    bezzaf: 4.0
+    bzaaf: 4.0
+    dyal: 4.0
+    dial: 4.0
+    diyal: 4.0
+    makaynch: 4.0
+    fo9ach: 4.0
+    chkoun: 4.0
+    kidayr: 4.0
+    wa9tach: 4.0
+  medium:
+    ghadi: 2.5
+    bghit: 2.5
+    bgha: 2.5
+    khassni: 2.5
+    khassk: 2.5
+    kayn: 2.5
+    kayen: 2.5
+    hit: 2.5
+    hadchi: 2.5
+    mzyan: 2.5
+    zwin: 2.5
+    b7al: 2.5
+    chwya: 2.5
+    safi: 2.5
+    yallah: 2.5
+    walo: 2.5
+    7na: 2.5
+    3ndi: 2.5
+    3ndk: 2.5
+    tsenna: 2.5
+    3ayet: 2.5
+    hdar: 2.5
+    khdem: 2.0
+    fin: 2.5
+    chhal: 2.5
+    se7a: 2.0
+    9lbi: 2.0
+    5oya: 2.0
+  weak:
+    salam: 0.5
+    marhba: 1.0
+    chokran: 1.0
+    labas: 1.0
+    nta: 1.0
+    nti: 1.0
+    ana: 0.5
+    ra: 1.0
+    smitk: 1.0
+    smiti: 1.0
+
+phrases:
+  arabic:
+    "اش خبارك": 7.0
+    "شنو سميتك": 7.0
+    "لاباس عليك": 6.0
+    "ما كاينش مشكل": 7.0
+    "ماكاينش مشكل": 7.0
+    "الله يعطيك الصحة": 6.0
+    "بالصحة والراحة": 6.0
+    "مول الحانوت": 6.0
+    "فين غادي": 6.0
+    "اش واقع": 6.0
+    "خليها على الله": 6.0
+  latin:
+    "ach khbarek": 7.0
+    "chno smitek": 7.0
+    "labas 3lik": 6.0
+    "ma kaynch mochkil": 7.0
+    "lah y3tik se7a": 6.0
+    "fin ghadi": 6.0
+    "ach wa9e3": 6.0
+    "khelliha 3la lah": 6.0
+    "kidayr labas": 6.0
+
+variants:
+  chnou: chno
+  achno: chno
+  achnou: chno
+  dial: dyal
+  diyal: dyal
+  bezzaf: bzaf
+  bzaaf: bzaf
+  kayen: kayn
+  labass: labas
+  kidayrrrr: kidayr
+
+arabic_variants:
+  أشنو: اشنو
+  شنو: اشنو
+  آش: اش
+  واش: واش
+  ديال: ديال
+  كاين: كاين
+
+moroccan_context:
+  arabic:
+    - المغرب
+    - مغربي
+    - مغربية
+    - الرباط
+    - الدار البيضاء
+    - كازا
+    - مراكش
+    - فاس
+    - طنجة
+    - أكادير
+    - وجدة
+    - تطوان
+    - الصويرة
+    - مكناس
+    - سوس
+    - الريف
+  latin:
+    - maroc
+    - marocain
+    - marocaine
+    - morocco
+    - moroccan
+    - rabat
+    - casablanca
+    - casa
+    - marrakech
+    - fes
+    - meknes
+    - tanger
+    - agadir
+    - oujda
+    - tetouan
+    - essaouira
+    - souss
+    - rif
+
+negative_or_ambiguous:
+  arabic:
+    - سنة
+    - تقرير
+    - صفحة
+    - رقم
+    - تاريخ
+  latin:
+    - report
+    - page
+    - version
+    - dataset
+    - api
+    - http
+    - https
+    - html
+    - pdf
+    - python
+    - utf
+    - ipv
+    - sha

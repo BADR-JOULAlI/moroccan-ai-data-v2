@@ -1,0 +1,15 @@
+pandas
+openpyxl
+httpx
+requests
+beautifulsoup4
+lxml
+playwright
+trafilatura
+tldextract
+tenacity
+PyYAML
+python-dateutil
+langdetect
+pytest
+pytest-asyncio

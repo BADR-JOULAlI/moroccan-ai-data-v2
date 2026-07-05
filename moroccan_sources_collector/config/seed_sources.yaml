@@ -1,0 +1,177 @@
+sources:
+  - name: Portail Open Data du Maroc
+    url: https://www.data.gov.ma/
+    category: Dataset_IA
+    priority: P0
+    expected_language: ar/fr
+    discovery_method: catalog
+    max_pages: 10
+    use_playwright: false
+  - name: Ministere marocain de la Culture
+    url: https://www.minculture.gov.ma/
+    category: Traditions
+    priority: P0
+    expected_language: ar/fr
+    discovery_method: catalog
+    max_pages: 10
+    use_playwright: false
+  - name: Bibliotheque Nationale du Royaume du Maroc
+    url: https://www.bnrm.ma/
+    category: Bibliotheques
+    priority: P0
+    expected_language: ar/fr
+    discovery_method: catalog
+    max_pages: 8
+    use_playwright: false
+  - name: Archives du Maroc
+    url: https://www.archivesdumaroc.ma/
+    category: Archives
+    priority: P0
+    expected_language: ar/fr
+    discovery_method: catalog
+    max_pages: 8
+    use_playwright: false
+  - name: Fondation Nationale des Musees
+    url: https://fnm.ma/
+    category: Patrimoine_materiel
+    priority: P1
+    expected_language: ar/fr
+    discovery_method: catalog
+    max_pages: 8
+    use_playwright: false
+  - name: UNESCO Maroc
+    url: https://www.unesco.org/fr/countries/ma
+    category: Patrimoine_immateriel
+    priority: P1
+    expected_language: fr
+    discovery_method: catalog
+    max_pages: 6
+    use_playwright: false
+  - name: Wikimedia Morocco category
+    url: https://commons.wikimedia.org/wiki/Category:Morocco
+    category: Patrimoine_materiel
+    priority: P1
+    expected_language: multi
+    discovery_method: catalog
+    max_pages: 8
+    use_playwright: false
+  - name: Wikidata Morocco
+    url: https://www.wikidata.org/wiki/Q1028
+    category: graphe_de_connaissances
+    priority: P1
+    expected_language: multi
+    discovery_method: catalog
+    max_pages: 5
+    use_playwright: false
+  - name: Hugging Face Darija search
+    url: https://huggingface.co/datasets?search=darija
+    category: Dataset_IA
+    priority: P0
+    expected_language: en
+    discovery_method: catalog
+    max_pages: 8
+    use_playwright: true
+  - name: Kaggle Moroccan Arabic search
+    url: https://www.kaggle.com/search?q=moroccan+arabic+dataset
+    category: Dataset_IA
+    priority: P1
+    expected_language: en
+    discovery_method: catalog
+    max_pages: 5
+    use_playwright: true
+  - name: Zenodo Darija search
+    url: https://zenodo.org/search?q=darija
+    category: Dataset_IA
+    priority: P0
+    expected_language: en
+    discovery_method: catalog
+    max_pages: 8
+    use_playwright: false
+  - name: GitHub Darija search
+    url: https://github.com/search?q=darija+dataset&type=repositories
+    category: Dataset_IA
+    priority: P0
+    expected_language: en
+    discovery_method: catalog
+    max_pages: 8
+    use_playwright: true
+  - name: arXiv Moroccan Arabic
+    url: https://arxiv.org/search/?query=moroccan+arabic&searchtype=all
+    category: Publication_scientifique
+    priority: P0
+    expected_language: en
+    discovery_method: catalog
+    max_pages: 6
+    use_playwright: false
+  - name: ACL Anthology Moroccan Arabic
+    url: https://aclanthology.org/search/?q=moroccan+arabic
+    category: Publication_scientifique
+    priority: P0
+    expected_language: en
+    discovery_method: catalog
+    max_pages: 6
+    use_playwright: false
+  - name: OpenEdition Maroc
+    url: https://search.openedition.org/results?q=Maroc+darija
+    category: Publication_scientifique
+    priority: P1
+    expected_language: fr
+    discovery_method: catalog
+    max_pages: 6
+    use_playwright: false
+  - name: Internet Archive Morocco
+    url: https://archive.org/search?query=Morocco%20Arabic
+    category: Archives
+    priority: P1
+    expected_language: multi
+    discovery_method: catalog
+    max_pages: 6
+    use_playwright: false
+  - name: Hespress
+    url: https://www.hespress.com/
+    category: Presse
+    priority: P2
+    expected_language: ar
+    discovery_method: catalog
+    max_pages: 6
+    use_playwright: false
+  - name: Le Matin Arabic
+    url: https://lematin.ma/ar
+    category: Presse
+    priority: P2
+    expected_language: ar
+    discovery_method: catalog
+    max_pages: 5
+    use_playwright: false
+  - name: Speak Moroccan
+    url: https://www.speakmoroccan.com/
+    category: Lexique_francais_darija
+    priority: P0
+    expected_language: fr/darija
+    discovery_method: catalog
+    max_pages: 10
+    use_playwright: false
+  - name: Moroccan Arabic Dictionary
+    url: https://www.moroccanarabicdictionary.com/
+    category: Dictionnaire_francais_darija
+    priority: P0
+    expected_language: en/darija
+    discovery_method: catalog
+    max_pages: 10
+    use_playwright: false
+  - name: Wiktionary Moroccan Arabic
+    url: https://en.wiktionary.org/wiki/Category:Moroccan_Arabic
+    category: Lexique_francais_darija
+    priority: P1
+    expected_language: en/darija
+    discovery_method: catalog
+    max_pages: 10
+    use_playwright: false
+  - name: Maroc Mama culture
+    url: https://marocmama.com/moroccan-culture/
+    category: Traditions
+    priority: P2
+    expected_language: en
+    discovery_method: catalog
+    max_pages: 5
+    use_playwright: false

@@ -1,0 +1,18 @@
+max_total_links: 500
+max_pages_per_domain: 20
+max_depth: 2
+request_timeout_seconds: 20
+max_retries: 3
+delay_between_requests_seconds: 1.5
+use_playwright_fallback: true
+headless: true
+cache_ttl_hours: 168
+user_agent: "MoroccanSourcesCollector/0.1 (+catalogue research; respectful crawler)"
+darija_detection:
+  keep_threshold: 65
+  review_threshold: 40
+  weak_signal_threshold: 20
+  minimum_strong_hits: 2
+  max_frequency_bonus: 15
+  max_context_bonus: 10
+  max_arabizi_bonus: 10

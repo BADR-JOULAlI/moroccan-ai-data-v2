@@ -1,0 +1,61 @@
+text,expected_label,source_type,notes
+"واش غادي تجي دابا ولا باقي؟",darija_arabe,synthetic,strong darija arabic
+"شنو سميتك؟",darija_arabe,synthetic,phrase
+"علاش ما جيتيش دابا؟",darija_arabe,synthetic,strong words
+"كيفاش كاين هادشي؟",darija_arabe,synthetic,strong and medium
+"بزاف ديال الناس ف الزنقة",darija_arabe,synthetic,lexical
+"ما كاينش مشكل",darija_arabe,synthetic,expression
+"خليها على الله",darija_arabe,synthetic,expression
+"فين غادي؟",darija_arabe,synthetic,phrase
+"واش نتا مزيان؟",darija_arabe,synthetic,mixed pronoun
+"مول الحانوت جا دابا",darija_arabe,synthetic,phrase
+"wach nta labas? ana mzyan daba",darija_latine,synthetic,latin darija
+"chno smitek",darija_latine,synthetic,latin phrase
+"kifach kayn hadchi",darija_latine,synthetic,latin darija
+"bghit nmchi daba",darija_latine,synthetic,latin darija
+"dyal had lblad",darija_latine,synthetic,latin darija
+"safi yallah nmchiw",darija_latine,synthetic,latin darija
+"fin ghadi daba",darija_latine,synthetic,latin phrase
+"chokran bzaf",darija_latine,synthetic,latin darija
+"marhba wach labas",darija_latine,synthetic,latin darija
+"khassni n3ref chhal",darija_latine,synthetic,latin darija
+"3lach ma jitich? 7na tsennak bzaf",darija_arabizi,synthetic,arabizi
+"b7al haka 3ndi wa9t",darija_arabizi,synthetic,arabizi
+"5oya 9lbi mzyan",darija_arabizi,synthetic,arabizi
+"lah y3tik se7a",darija_arabizi,synthetic,arabizi phrase
+"wa9tach ghadi tji",darija_arabizi,synthetic,arabizi
+"3ayet lia daba",darija_arabizi,synthetic,arabizi
+"7na f casa",darija_arabizi,synthetic,arabizi context
+"3lach kayn hadchi",darija_arabizi,synthetic,arabizi
+"b7al lbarah",darija_arabizi,synthetic,arabizi
+"fo9ach bghiti",darija_arabizi,synthetic,arabizi
+"أعلنت الوزارة عن إطلاق البرنامج الوطني الجديد",arabe_standard_probable,synthetic,msa
+"ناقش البرلمان مشروع القانون",arabe_standard_probable,synthetic,msa
+"صدر تقرير رسمي عن الاقتصاد",arabe_standard_probable,synthetic,msa
+"تاريخ المغرب غني بالتراث",arabe_standard_probable,synthetic,msa morocco
+"الثقافة المغربية متنوعة",arabe_standard_probable,synthetic,msa morocco
+"Le rapport culturel a été publié en 2024",indeterminee,synthetic,french year
+"Bonjour et merci beaucoup",indeterminee,synthetic,french weak
+"Ce document décrit la culture marocaine",indeterminee,synthetic,french culture no darija
+"The dataset contains public metadata",indeterminee,synthetic,english
+"Moroccan Arabic dataset for NLP",indeterminee,synthetic,english dataset
+"Python3 utilise UTF8 et HTTP2",indeterminee,synthetic,technical
+"sha256 html5 ipv4 version3",indeterminee,synthetic,technical
+"Rapport annuel 2026 page2",indeterminee,synthetic,year technical
+"dataset2025 api version3",indeterminee,synthetic,technical
+"2024 2019 2026",indeterminee,synthetic,years
+"مرحبا",indeterminee,synthetic,weak arabic alone
+"salam",indeterminee,synthetic,weak latin alone
+"chokran",indeterminee,synthetic,weak latin alone
+"عندي تقرير جديد",indeterminee,synthetic,ambiguous
+"ana page version",indeterminee,synthetic,ambiguous technical
+"Bonjour veut dire salam, comment allez-vous se dit kidayr labas",francais_darija_probable,synthetic,fr darija
+"Merci beaucoup veut dire chokran bzaf",darija_latine,synthetic,fr darija
+"Comment tu t'appelles se dit chno smitek",darija_latine,synthetic,fr darija phrase
+"فرنسا والمغرب وقعا اتفاقية",arabe_standard_probable,synthetic,msa context
+"واش واش واش واش واش",indeterminee,synthetic,repetition cap
+"هذا نص طويل عن المغرب بدون دارجة",arabe_standard_probable,synthetic,msa morocco
+"learn darija vocabulary wach daba",darija_latine,synthetic,english darija
+"darija podcast kidayr labas",darija_latine,synthetic,media darija
+"facebook post 2025",indeterminee,synthetic,technical social
+"youtube html5 video 2024",indeterminee,synthetic,technical media
