@@ -1,3 +1,5 @@
+"""Module d?audit technique des URLs et des fichiers Excel g?n?r?s."""
+
 from __future__ import annotations
 
 import re
@@ -11,6 +13,7 @@ GITHUB_REPO_RE = re.compile(r"^/([A-Za-z0-9_.-]+)/([A-Za-z0-9_.-]+)$")
 
 
 def extract_concrete_links(url: str, html: str, limit: int = 20) -> list[str]:
+    """Extrait les informations utiles depuis le contenu fourni et filtre le bruit."""
     host = urlparse(url).netloc.lower()
     soup = BeautifulSoup(html or "", "lxml")
     results: list[str] = []

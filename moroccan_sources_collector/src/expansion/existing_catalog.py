@@ -1,3 +1,5 @@
+"""Module historique d?expansion du catalogue ? partir de sources existantes."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -13,6 +15,7 @@ URL_COLUMNS = {"url_originale", "url_finale", "url"}
 
 @dataclass
 class ExistingCatalog:
+    """Classe m?tier utilis?e pour structurer le comportement ou les donn?es de ExistingCatalog."""
     records: list[dict]
     original_urls: set[str]
     final_urls: set[str]
@@ -22,6 +25,7 @@ class ExistingCatalog:
 
 
 def resolve_input_path(input_value: str, root: Path) -> Path:
+    """R?sout une valeur d?entr?e vers une ressource concr?te utilisable par le pipeline."""
     path = Path(input_value)
     if path.exists():
         return path
@@ -36,6 +40,7 @@ def resolve_input_path(input_value: str, root: Path) -> Path:
 
 
 def _header_map(headers: list[str]) -> dict[str, str]:
+    """D?crit le fonctionnement de `_header_map` et retourne le r?sultat attendu par le module."""
     normalized = {str(header or "").strip().lower(): str(header or "").strip() for header in headers}
     aliases = {
         "url_originale": ["url_originale", "url originale", "original_url"],
@@ -56,6 +61,7 @@ def _header_map(headers: list[str]) -> dict[str, str]:
 
 
 def load_existing_catalog(path: Path) -> ExistingCatalog:
+    """Charge des donn?es ou une configuration depuis le disque et retourne une structure exploitable."""
     wb = load_workbook(path, data_only=False)
     sheet_name = "Catalogue_liens" if "Catalogue_liens" in wb.sheetnames else wb.sheetnames[0]
     ws = wb[sheet_name]

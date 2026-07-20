@@ -1,9 +1,12 @@
+"""Module d?audit technique des URLs et des fichiers Excel g?n?r?s."""
+
 from __future__ import annotations
 
 from urllib.parse import parse_qs, urlparse
 
 
 def platform_for_url(url: str) -> str:
+    """D?crit le fonctionnement de `platform_for_url` et retourne le r?sultat attendu par le module."""
     host = urlparse(url).netloc.lower()
     if "github.com" in host:
         return "GitHub"
@@ -25,6 +28,7 @@ def platform_for_url(url: str) -> str:
 
 
 def is_search_page(url: str) -> bool:
+    """Retourne un bool?en indiquant si la valeur respecte une condition pr?cise."""
     parsed = urlparse(url)
     host = parsed.netloc.lower()
     path = parsed.path.lower()
@@ -49,6 +53,7 @@ def is_search_page(url: str) -> bool:
 
 
 def query_for_url(url: str) -> str:
+    """D?crit le fonctionnement de `query_for_url` et retourne le r?sultat attendu par le module."""
     parsed = urlparse(url)
     query = parse_qs(parsed.query)
     for key in ("q", "query", "search", "search_query"):
@@ -58,6 +63,7 @@ def query_for_url(url: str) -> str:
 
 
 def concrete_type_for_url(url: str) -> str | None:
+    """D?crit le fonctionnement de `concrete_type_for_url` et retourne le r?sultat attendu par le module."""
     parsed = urlparse(url)
     host = parsed.netloc.lower()
     parts = [p for p in parsed.path.strip("/").split("/") if p]

@@ -1,0 +1,1 @@
+from datatrove_extraction.helpers.main_helpers.document_inspector import DocumentStructureInspector

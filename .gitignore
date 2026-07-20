@@ -1,0 +1,25 @@
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# Local environment files
+.env
+
+# Generated collector outputs
+moroccan_sources_collector/data/cache/
+moroccan_sources_collector/data/intermediate/
+moroccan_sources_collector/data/output/
+moroccan_sources_collector/logs/
+moroccan_sources_collector/moroccan_websites.csv
+moroccan_sources_collector/moroccan_websites.jsonl
+moroccan_sources_collector/moroccan_websites.xlsx
+
+# Generated crawler outputs
+crawler_project-main/**/crawl_out/
+crawler_project-main/**/models_cache/
+crawler_project-main/**/datatrove_extraction/output/
+crawler_project-main/**/datatrove_extraction/input/
+
+# Office temporary files
+~$*

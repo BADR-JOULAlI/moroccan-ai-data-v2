@@ -1,3 +1,5 @@
+"""Fonctions utilitaires partag?es par plusieurs ?tapes du pipeline."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -25,6 +27,7 @@ TRACKING_PARAMS = {
 
 
 def normalize_url(url: str, base_url: str | None = None) -> str:
+    """Normalise une valeur afin de rendre les comparaisons et d?duplications fiables."""
     if base_url:
         url = urljoin(base_url, url)
     parsed = urlparse(unquote(url.strip()))
@@ -46,6 +49,7 @@ def normalize_url(url: str, base_url: str | None = None) -> str:
 
 
 def canonicalize_for_fingerprint(url: str) -> str:
+    """Construit une forme canonique stable pour comparer ou stocker la ressource."""
     normalized = normalize_url(url)
     parsed = urlparse(normalized)
     netloc = parsed.netloc.removeprefix("m.")
@@ -58,20 +62,24 @@ def canonicalize_for_fingerprint(url: str) -> str:
 
 
 def url_fingerprint(url: str) -> str:
+    """D?crit le fonctionnement de `url_fingerprint` et retourne le r?sultat attendu par le module."""
     return hashlib.sha256(canonicalize_for_fingerprint(url).encode("utf-8")).hexdigest()
 
 
 def text_fingerprint(text: str) -> str:
+    """D?crit le fonctionnement de `text_fingerprint` et retourne le r?sultat attendu par le module."""
     compact = " ".join((text or "").lower().split())
     return hashlib.sha256(compact[:5000].encode("utf-8")).hexdigest()
 
 
 def get_domain(url: str) -> str:
+    """D?crit le fonctionnement de `get_domain` et retourne le r?sultat attendu par le module."""
     parsed = urlparse(url)
     return parsed.netloc.lower().removeprefix("www.")
 
 
 def get_registered_domain(url: str) -> str:
+    """D?crit le fonctionnement de `get_registered_domain` et retourne le r?sultat attendu par le module."""
     ext = tldextract.extract(url)
     if not ext.domain:
         return get_domain(url)
@@ -79,10 +87,12 @@ def get_registered_domain(url: str) -> str:
 
 
 def is_http_url(url: str) -> bool:
+    """Retourne un bool?en indiquant si la valeur respecte une condition pr?cise."""
     return urlparse(url).scheme in {"http", "https"}
 
 
 def deduplicate_urls(urls: list[str]) -> list[str]:
+    """D?crit le fonctionnement de `deduplicate_urls` et retourne le r?sultat attendu par le module."""
     seen: set[str] = set()
     result: list[str] = []
     for url in urls:
@@ -95,6 +105,7 @@ def deduplicate_urls(urls: list[str]) -> list[str]:
 
 @dataclass
 class LinkCandidate:
+    """Classe m?tier utilis?e pour structurer le comportement ou les donn?es de LinkCandidate."""
     url: str
     source_name: str
     source_url: str

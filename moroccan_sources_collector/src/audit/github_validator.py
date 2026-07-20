@@ -1,3 +1,5 @@
+"""Module d?audit technique des URLs et des fichiers Excel g?n?r?s."""
+
 from __future__ import annotations
 
 from urllib.parse import urlparse
@@ -6,11 +8,13 @@ from src.audit.replacement_extractor import extract_concrete_links
 
 
 def is_github_search(url: str) -> bool:
+    """Retourne un bool?en indiquant si la valeur respecte une condition pr?cise."""
     parsed = urlparse(url)
     return "github.com" in parsed.netloc.lower() and parsed.path.lower() == "/search"
 
 
 def validate_github(url: str, title: str, text: str, html: str, max_results: int = 20) -> dict:
+    """Valide une ressource selon les r?gles m?tier ou techniques du projet."""
     parsed = urlparse(url)
     parts = [p for p in parsed.path.strip("/").split("/") if p]
     if is_github_search(url):

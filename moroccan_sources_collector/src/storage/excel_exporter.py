@@ -1,3 +1,5 @@
+"""Module de stockage et d?export des donn?es du pipeline."""
+
 from __future__ import annotations
 
 from collections import Counter
@@ -21,6 +23,7 @@ CATALOG_COLUMNS = [
 
 
 def _write_sheet(wb: Workbook, title: str, records: list[dict], columns: list[str]) -> None:
+    """D?crit le fonctionnement de `_write_sheet` et retourne le r?sultat attendu par le module."""
     ws = wb.create_sheet(title)
     ws.append(columns)
     for record in records:
@@ -35,6 +38,7 @@ def _write_sheet(wb: Workbook, title: str, records: list[dict], columns: list[st
 
 
 def _format_table(ws, table_name: str) -> None:
+    """D?crit le fonctionnement de `_format_table` et retourne le r?sultat attendu par le module."""
     header_fill = PatternFill("solid", fgColor="1F4E78")
     for cell in ws[1]:
         cell.font = Font(color="FFFFFF", bold=True)
@@ -69,6 +73,7 @@ def _format_table(ws, table_name: str) -> None:
 
 
 def _dashboard(wb: Workbook, records: list[dict]) -> None:
+    """D?crit le fonctionnement de `_dashboard` et retourne le r?sultat attendu par le module."""
     ws = wb.create_sheet("Tableau_de_bord")
     domains = {record.get("Domaine") for record in records if record.get("Domaine")}
     metrics = [
@@ -111,6 +116,7 @@ def _dashboard(wb: Workbook, records: list[dict]) -> None:
 
 
 def _referential(wb: Workbook) -> None:
+    """D?crit le fonctionnement de `_referential` et retourne le r?sultat attendu par le module."""
     ws = wb.create_sheet("Referentiel")
     rows = [
         ("Langues", "arabe_standard, darija_arabe, darija_latine, darija_arabizi, arabe_darija_mixte, francais_darija, autre_langue, indeterminee"),
@@ -126,6 +132,7 @@ def _referential(wb: Workbook) -> None:
 
 
 def export_excel(records: list[dict], path: Path) -> None:
+    """?crit les donn?es transform?es dans un format de sortie exploitable."""
     path.parent.mkdir(parents=True, exist_ok=True)
     wb = Workbook()
     wb.remove(wb.active)

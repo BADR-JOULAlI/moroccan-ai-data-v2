@@ -1,3 +1,5 @@
+"""Tests automatis?s qui documentent et prot?gent le comportement attendu du projet."""
+
 from pathlib import Path
 
 from openpyxl import load_workbook
@@ -6,6 +8,7 @@ from src.storage.excel_exporter import CATALOG_COLUMNS, export_excel
 
 
 def test_excel_exporter_creates_sheets_and_hyperlink_formula(tmp_path: Path):
+    """V?rifie le comportement attendu d?une fonctionnalit? du projet."""
     record = {column: "" for column in CATALOG_COLUMNS}
     record.update({
         "ID": 1,

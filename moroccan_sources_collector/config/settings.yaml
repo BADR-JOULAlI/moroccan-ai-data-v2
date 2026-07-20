@@ -1,4 +1,4 @@
-max_total_links: 500
+max_total_links: 80
 max_pages_per_domain: 20
 max_depth: 2
 request_timeout_seconds: 20
@@ -6,6 +6,23 @@ max_retries: 3
 delay_between_requests_seconds: 1.5
 use_playwright_fallback: true
 headless: true
+playwright_headless: true
+playwright_discovery_first: true
+playwright_discovery_budget_ratio: 0.7
+playwright_timeout_ms: 30000
+playwright_min_delay_seconds: 0.8
+playwright_max_delay_seconds: 2.2
+playwright_scroll_pause_seconds: 1.2
+playwright_max_scrolls: 18
+playwright_max_concurrent_pages: 2
+max_results_per_query: 50
+max_social_links_per_platform: 400
+social_max_results_per_query: 120
+social_playwright_max_scrolls: 30
+max_links_per_domain: 40
+browser_locale: fr-FR
+browser_timezone: Africa/Casablanca
+browser_user_agent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36"
 cache_ttl_hours: 168
 user_agent: "MoroccanSourcesCollector/0.1 (+catalogue research; respectful crawler)"
 darija_detection:

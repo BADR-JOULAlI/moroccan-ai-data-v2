@@ -1,3 +1,5 @@
+"""Module de stockage et d?export des donn?es du pipeline."""
+
 from __future__ import annotations
 
 from collections import Counter, defaultdict
@@ -21,6 +23,7 @@ EXPANDED_COLUMNS = [
 
 
 def _format(ws, name: str) -> None:
+    """D?crit le fonctionnement de `_format` et retourne le r?sultat attendu par le module."""
     fill = PatternFill("solid", fgColor="1F4E78")
     for cell in ws[1]:
         cell.font = Font(color="FFFFFF", bold=True)
@@ -50,6 +53,7 @@ def _format(ws, name: str) -> None:
 
 
 def _write_records(wb: Workbook, title: str, records: list[dict], columns: list[str] = EXPANDED_COLUMNS) -> None:
+    """D?crit le fonctionnement de `_write_records` et retourne le r?sultat attendu par le module."""
     ws = wb.create_sheet(title)
     ws.append(columns)
     for record in records:
@@ -59,6 +63,7 @@ def _write_records(wb: Workbook, title: str, records: list[dict], columns: list[
 
 
 def _write_dashboard(wb: Workbook, all_records: list[dict], new_records: list[dict], duplicates: list[dict], initial_count: int) -> None:
+    """D?crit le fonctionnement de `_write_dashboard` et retourne le r?sultat attendu par le module."""
     ws = wb.create_sheet("Tableau_de_bord")
     new_domains = {r.get("Domaine") for r in new_records if r.get("Domaine")}
     metrics = [
@@ -101,6 +106,7 @@ def _write_dashboard(wb: Workbook, all_records: list[dict], new_records: list[di
 
 
 def _write_domains(wb: Workbook, records: list[dict]) -> None:
+    """D?crit le fonctionnement de `_write_domains` et retourne le r?sultat attendu par le module."""
     grouped: dict[str, list[dict]] = defaultdict(list)
     for record in records:
         if record.get("Domaine"):
@@ -119,6 +125,7 @@ def _write_domains(wb: Workbook, records: list[dict]) -> None:
 
 
 def _write_reference(wb: Workbook) -> None:
+    """D?crit le fonctionnement de `_write_reference` et retourne le r?sultat attendu par le module."""
     rows = [
         {"Element": "Normalisation", "Definition": "Fragments retires, tracking retire, www retire, slash final normalise, parametres utiles tries."},
         {"Element": "Doublons", "Definition": "Rejet par URL normalisee, empreinte URL, URL finale ou hash de contenu."},
@@ -130,6 +137,7 @@ def _write_reference(wb: Workbook) -> None:
 
 
 def export_expanded_excel(all_records: list[dict], new_records: list[dict], duplicates: list[dict], path: Path, initial_count: int) -> None:
+    """?crit les donn?es transform?es dans un format de sortie exploitable."""
     path.parent.mkdir(parents=True, exist_ok=True)
     wb = Workbook()
     wb.remove(wb.active)

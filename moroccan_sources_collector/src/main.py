@@ -1,22 +1,45 @@
+"""Point d'entree CLI qui orchestre le pipeline ETL, les commandes historiques et les exports."""
+
 from __future__ import annotations
 
+"""Command-line entrypoint for the Moroccan Sources Collector.
+
+The recommended MVP path is intentionally linear and easy to present:
+
+1. Extraction: Playwright discovers concrete YouTube/Facebook URLs from YAML seeds.
+2. Transformation: Darija density filtering keeps only relevant social sources.
+3. Load: Excel, CSV and JSONL artefacts are written under ``data/output``.
+
+For the jury/demo, the project can be launched with:
+
+``uv run python -m src.main``
+
+Legacy commands are kept for advanced runs and audit experiments, but the default
+entrypoint executes the social ETL MVP.
+"""
+
 import argparse
+import asyncio
 import csv
 import json
 import logging
 from collections import Counter, defaultdict
 from datetime import datetime, timezone
 from pathlib import Path
+from urllib.parse import parse_qs, urlencode, urljoin, urlparse, urlunparse
 
 from bs4 import BeautifulSoup
+import httpx
 import yaml
 
 from src.audit.audit_exporter import export_audit_excel
 from src.audit.excel_loader import load_url_rows, resolve_excel_path
 from src.audit.url_auditor import AuditConfig, UrlAuditor
+from src.analysis.darija_detector import calculate_darija_score
 from src.analysis.page_analyzer import analyze_page
 from src.discovery.catalog_crawler import CatalogCrawler
 from src.discovery.seed_loader import load_seed_sources
+from src.discovery.search_adapters import BrowserDiscoveryConfig, PlaywrightDiscoveryAdapter
 from src.expansion.discovery_expander import ExpansionDiscoverer
 from src.expansion.duplicate_detector import DuplicateDetector
 from src.expansion.existing_catalog import load_existing_catalog, resolve_input_path
@@ -25,6 +48,7 @@ from src.storage.cache import JsonCache
 from src.storage.csv_exporter import export_csv
 from src.storage.expansion_excel_exporter import EXPANDED_COLUMNS, export_expanded_excel
 from src.storage.excel_exporter import CATALOG_COLUMNS, export_excel
+from src.storage.exporter import DataExporter
 from src.storage.jsonl_exporter import export_jsonl, load_jsonl
 from src.utils.logging_utils import log_error, setup_logging
 from src.utils.url_utils import LinkCandidate, get_domain, normalize_url, text_fingerprint, url_fingerprint
@@ -49,15 +73,544 @@ NEW_CSV_PATH = OUTPUT / "nouveaux_liens.csv"
 DUP_JSONL_PATH = OUTPUT / "doublons_rejetes.jsonl"
 DOMAINS_CSV_PATH = OUTPUT / "domaines_decouverts.csv"
 AUDITED_XLSX_PATH = OUTPUT / "catalogue_sources_marocaines_ai_audite.xlsx"
+REVIEW_CSV_PATH = OUTPUT / "liens_a_valider_manuellement.csv"
+CRAWLER_URLS_PATH = OUTPUT / "crawler_urls.txt"
+CRAWLER_MANIFEST_PATH = OUTPUT / "crawl_manifest.jsonl"
+ACCEPTED_REVIEW_DECISIONS = {"accept", "accepted", "conserver", "oui", "yes", "ok", "valide", "valid"}
+
+REVIEW_COLUMNS = [
+    "Decision_validation",
+    "URL_finale",
+    "Domaine",
+    "Nom_source",
+    "Categorie_principale",
+    "Score_pertinence",
+    "Priorite",
+    "Statut_HTTP",
+    "Statut_lien",
+    "Robots_txt",
+    "Source_decouverte",
+    "Mots_cles_associes",
+    "Notes_validation",
+]
 
 LOGGER = logging.getLogger(__name__)
 
+MVP_UV_USAGE = """
+MVP execution with uv:
+  uv init
+  uv add playwright httpx beautifulsoup4 openpyxl pyyaml pytest
+  uv run playwright install chromium
+  uv run python -m src.main
+
+Default command:
+  uv run python -m src.main
+
+Explicit command:
+  uv run python -m src.main mvp --max-links 800 --min-darija-density 0.15
+"""
+
+SOCIAL_DISCOVERY_METHODS = {
+    "youtube_search",
+    "youtube_keyword",
+    "youtube_channel",
+    "youtube_videos",
+    "youtube_shorts",
+    "facebook_page",
+    "facebook_public_page",
+    "google_facebook_dork",
+    "facebook_dork",
+}
+
+STATIC_BACKGROUND_PLATFORMS = {"Kaggle", "GitHub"}
+
+
+def _review_record(record: dict) -> dict:
+    """Prepare one row for human validation before crawler export."""
+    return {
+        "Decision_validation": "",
+        "URL_finale": record.get("URL_finale") or record.get("URL_originale") or record.get("url", ""),
+        "Domaine": record.get("Domaine") or get_domain(record.get("URL_finale") or record.get("URL_originale") or record.get("url", "")),
+        "Nom_source": record.get("Nom_source") or record.get("source_name", ""),
+        "Categorie_principale": record.get("Categorie_principale") or record.get("source_category", ""),
+        "Score_pertinence": record.get("Score_pertinence", ""),
+        "Priorite": record.get("Priorite") or record.get("source_priority", ""),
+        "Statut_HTTP": record.get("Statut_HTTP", ""),
+        "Statut_lien": record.get("Statut_lien", ""),
+        "Robots_txt": record.get("Robots_txt", ""),
+        "Source_decouverte": record.get("Source_decouverte") or record.get("source_url", ""),
+        "Mots_cles_associes": record.get("Mots_cles_associes") or record.get("anchor_text", ""),
+        "Notes_validation": "",
+    }
+
+
+def export_manual_review(records: list[dict], path: Path = REVIEW_CSV_PATH) -> None:
+    """Export a CSV file that lets a human accept, reject, or postpone links."""
+    export_csv([_review_record(record) for record in records], path, REVIEW_COLUMNS)
+
+
+def _resolve_output_path(path_value: str | Path, default_parent: Path = OUTPUT) -> Path:
+    """Resolve CLI paths relative to data/output by default."""
+    path = Path(path_value)
+    return path if path.is_absolute() else default_parent / path
+
+
+def _crawler_manifest_record(row: dict) -> dict:
+    """Prepare one accepted human-reviewed row for the crawler manifest."""
+    url = normalize_url(row.get("URL_finale", ""))
+    return {
+        "url": url,
+        "domain": row.get("Domaine") or get_domain(url),
+        "source_name": row.get("Nom_source", ""),
+        "source_category": row.get("Categorie_principale", ""),
+        "priority": row.get("Priorite", ""),
+        "score": row.get("Score_pertinence", ""),
+        "review_decision": row.get("Decision_validation", ""),
+        "review_notes": row.get("Notes_validation", ""),
+        "discovery_source": row.get("Source_decouverte", ""),
+        "exported_at": datetime.now(timezone.utc).isoformat(),
+    }
+
+
+def export_crawler_input_from_review(review_path: Path, urls_path: Path, manifest_path: Path) -> dict:
+    """Export crawler inputs from manually accepted review rows only."""
+    if not review_path.exists():
+        raise FileNotFoundError(f"Fichier de revue introuvable: {review_path}")
+
+    accepted_rows: list[dict] = []
+    seen_urls: set[str] = set()
+    with review_path.open("r", newline="", encoding="utf-8-sig") as handle:
+        reader = csv.DictReader(handle)
+        for row in reader:
+            decision = str(row.get("Decision_validation", "")).strip().lower()
+            if decision not in ACCEPTED_REVIEW_DECISIONS:
+                continue
+            url = normalize_url(row.get("URL_finale", ""))
+            if not url or url in seen_urls:
+                continue
+            seen_urls.add(url)
+            row["URL_finale"] = url
+            accepted_rows.append(row)
+
+    urls_path.parent.mkdir(parents=True, exist_ok=True)
+    urls_path.write_text("\n".join(row["URL_finale"] for row in accepted_rows) + ("\n" if accepted_rows else ""), encoding="utf-8")
+    export_jsonl([_crawler_manifest_record(row) for row in accepted_rows], manifest_path)
+    return {
+        "review_csv": str(review_path),
+        "accepted_links": len(accepted_rows),
+        "urls_txt": str(urls_path),
+        "crawl_manifest_jsonl": str(manifest_path),
+    }
+
 
 def load_yaml(path: Path) -> dict:
+    """Charge un fichier YAML et retourne un dictionnaire vide si le fichier est sans contenu."""
     return yaml.safe_load(path.read_text(encoding="utf-8")) or {}
 
 
+def _social_seeds(seeds: list[dict]) -> list[dict]:
+    # MVP scope: keep only dynamic social sources that can feed the demo quickly.
+    """Filtre les seeds pour garder uniquement les methodes de decouverte sociales."""
+    return [seed for seed in seeds if str(seed.get("discovery_method", "")).lower() in SOCIAL_DISCOVERY_METHODS]
+
+
+def _seed_platform(seed: dict) -> str:
+    """Detecte la plateforme cible d'un seed a partir de son URL, nom ou mode de collecte."""
+    signal = " ".join(
+        str(seed.get(key, ""))
+        for key in ["platform", "name", "url", "query", "discovery_method"]
+    ).lower()
+    if "youtube" in signal or "youtu.be" in signal:
+        return "YouTube"
+    if "facebook" in signal:
+        return "Facebook"
+    if "kaggle" in signal:
+        return "Kaggle"
+    if "github" in signal:
+        return "GitHub"
+    return "Autres"
+
+
+def _static_background_seeds(seeds: list[dict]) -> list[dict]:
+    """Garde les seeds statiques rapides qui peuvent etre collectes sans Playwright."""
+    return [seed for seed in seeds if _seed_platform(seed) in STATIC_BACKGROUND_PLATFORMS]
+
+
+def _canonical_candidate_url(url: str) -> str:
+    """Nettoie une URL avant deduplication en preservant l'identifiant metier.
+
+    Pour YouTube, tous les parametres de tracking sont supprimes et seul
+    ``watch?v=VIDEO_ID`` est conserve. Pour les autres plateformes, la
+    normalisation generale du projet reste appliquee.
+    """
+    normalized = normalize_url(url)
+    if not normalized:
+        return ""
+    parsed = urlparse(normalized)
+    host = parsed.netloc.lower().removeprefix("www.")
+    if host == "youtu.be":
+        video_id = parsed.path.strip("/").split("/")[0]
+        return f"https://www.youtube.com/watch?v={video_id}" if video_id else normalized
+    if host.endswith("youtube.com"):
+        query = parse_qs(parsed.query)
+        video_id = (query.get("v") or [""])[0]
+        if video_id:
+            return urlunparse(("https", "www.youtube.com", "/watch", "", urlencode({"v": video_id}), ""))
+        if parsed.path.startswith("/@") or parsed.path.startswith("/channel/") or parsed.path.startswith("/c/"):
+            return urlunparse(("https", "www.youtube.com", parsed.path.rstrip("/"), "", "", ""))
+    return normalized
+
+
+def _browser_config_from_settings(settings: dict) -> BrowserDiscoveryConfig:
+    # Centralize Playwright settings so the YAML file remains the only tuning point.
+    """Construit la configuration Playwright a partir des parametres YAML du projet."""
+    return BrowserDiscoveryConfig(
+        headless=bool(settings.get("playwright_headless", True)),
+        user_agent=settings.get("browser_user_agent", BrowserDiscoveryConfig().user_agent),
+        locale=settings.get("browser_locale", "fr-FR"),
+        timezone_id=settings.get("browser_timezone", "Africa/Casablanca"),
+        navigation_timeout_ms=int(settings.get("playwright_timeout_ms", 30000)),
+        min_delay_seconds=float(settings.get("playwright_min_delay_seconds", 0.8)),
+        max_delay_seconds=float(settings.get("playwright_max_delay_seconds", 2.2)),
+        scroll_pause_seconds=float(settings.get("playwright_scroll_pause_seconds", 1.2)),
+        max_scrolls=max(
+            int(settings.get("playwright_max_scrolls", 18)),
+            int(settings.get("social_playwright_max_scrolls", 30)),
+        ),
+        max_results_per_query=max(
+            int(settings.get("max_results_per_query", 50)),
+            int(settings.get("social_max_results_per_query", 120)),
+        ),
+        max_concurrent_pages=int(settings.get("playwright_max_concurrent_pages", 2)),
+    )
+
+
+async def _collect_static_platform_links(seeds: list[dict], settings: dict) -> list[dict]:
+    """Collecte rapidement les liens Kaggle/GitHub publics sans navigateur Playwright.
+
+    Inputs:
+        seeds: liste de seeds catalogues pointant vers Kaggle ou GitHub.
+        settings: configuration HTTP, notamment timeout et User-Agent.
+
+    Output:
+        liste de dictionnaires candidats compatible avec candidates.jsonl.
+    """
+    if not seeds:
+        return []
+    timeout = float(settings.get("request_timeout_seconds", 20))
+    headers = {"User-Agent": settings.get("user_agent", "MoroccanSourcesCollector/0.1")}
+    records: list[dict] = []
+    seen: set[str] = set()
+    async with httpx.AsyncClient(timeout=timeout, headers=headers, follow_redirects=True) as client:
+        for seed in seeds:
+            seed_url = seed.get("url")
+            if not seed_url:
+                continue
+            platform = _seed_platform(seed)
+            per_seed_limit = int(seed.get("max_results") or seed.get("max_pages") or 20)
+            try:
+                response = await client.get(seed_url)
+                response.raise_for_status()
+            except Exception as exc:
+                LOGGER.info("[ETL - Extraction] Seed statique ignore %s: %s", seed_url, exc)
+                continue
+            soup = BeautifulSoup(response.text, "html.parser")
+            candidates = [seed_url]
+            for anchor in soup.select("a[href]"):
+                href = anchor.get("href", "")
+                absolute = normalize_url(urljoin(seed_url, href))
+                if platform == "Kaggle" and "kaggle.com" not in absolute:
+                    continue
+                if platform == "GitHub" and "github.com" not in absolute:
+                    continue
+                candidates.append(absolute)
+                if len(candidates) >= per_seed_limit:
+                    break
+            for url in candidates:
+                if not url or url in seen:
+                    continue
+                seen.add(url)
+                records.append({
+                    "url": url,
+                    "source_name": seed.get("name", platform),
+                    "source_url": seed_url,
+                    "source_category": seed.get("category", "Dataset_IA"),
+                    "source_priority": seed.get("priority", "P1"),
+                    "discovery_method": "httpx_static_background",
+                    "platform": platform,
+                    "anchor_text": seed.get("query") or seed.get("name", ""),
+                    "query": seed.get("query", ""),
+                    "date_capture": datetime.now(timezone.utc).date().isoformat(),
+                    "status": "DISCOVERED",
+                })
+    LOGGER.info("[ETL - Extraction] %s liens statiques Kaggle/GitHub collectes", len(records))
+    return records
+
+
+async def mvp_extract_async(seeds: list[dict], settings: dict, max_links: int) -> list[dict]:
+    """Extract concrete social URLs with Playwright.
+
+    Inputs:
+        seeds: YouTube/Facebook discovery seeds loaded from config/seed_sources.yaml.
+        settings: runtime configuration, especially Playwright delays and scroll limits.
+        max_links: global cap for raw candidate URLs.
+
+    Output:
+        A list of dictionaries ready to be written to data/intermediate/candidates.jsonl.
+        Only concrete YouTube/Facebook URLs are returned; search pages are not kept.
+    """
+    config = _browser_config_from_settings(settings)
+    social_seeds = _social_seeds(seeds)
+    static_task = asyncio.create_task(_collect_static_platform_links(_static_background_seeds(seeds), settings))
+    social_quota = min(int(settings.get("max_social_links_per_platform", 400)), max_links)
+    per_seed_social_limit = int(settings.get("social_max_results_per_query", config.max_results_per_query))
+    extracted: list[dict] = []
+    seen: set[str] = set()
+    platform_counts: defaultdict[str, int] = defaultdict(int)
+    async with PlaywrightDiscoveryAdapter(config) as adapter:
+        for seed in social_seeds:
+            if len(extracted) >= max_links:
+                break
+            method = str(seed.get("discovery_method", "")).lower()
+            platform = _seed_platform(seed)
+            remaining_platform = social_quota - platform_counts[platform]
+            if remaining_platform <= 0:
+                LOGGER.info("[ETL - Extraction] Quota %s atteint (%s liens)", platform, social_quota)
+                continue
+            limit = min(
+                max(int(seed.get("max_results") or 0), per_seed_social_limit),
+                remaining_platform,
+                max_links - len(extracted),
+            )
+            # Dispatch by seed type. Each adapter returns concrete links, never search pages.
+            if method in {"youtube_search", "youtube_keyword"}:
+                links = await adapter.youtube_search(seed.get("query") or seed.get("name", ""), limit)
+            elif method in {"youtube_channel", "youtube_videos"}:
+                links = await adapter.youtube_channel_videos(seed.get("url", ""), "videos", limit)
+            elif method == "youtube_shorts":
+                links = await adapter.youtube_channel_videos(seed.get("url", ""), "shorts", limit)
+            elif method in {"facebook_page", "facebook_public_page"}:
+                links = await adapter.facebook_public_page_posts(seed.get("url", ""), limit)
+            elif method in {"google_facebook_dork", "facebook_dork"}:
+                links = await adapter.google_facebook_dork(seed.get("query") or seed.get("name", ""), limit)
+            else:
+                links = []
+
+            added = 0
+            for link in links:
+                url = _canonical_candidate_url(link.url)
+                # Deduplicate immediately so the next ETL step receives a clean JSONL stream.
+                if not url:
+                    LOGGER.warning("[REJET] URL vide ou invalide apres nettoyage: %s", link.url)
+                    continue
+                if url in seen:
+                    LOGGER.warning("[REJET] URL dedupliquee: %s", url)
+                    continue
+                seen.add(url)
+                extracted.append({
+                    "url": url,
+                    "source_name": seed.get("name", link.platform or "Social discovery"),
+                    "source_url": link.source_origine,
+                    "source_category": seed.get("category", "Audio_video"),
+                    "source_priority": seed.get("priority", "P1"),
+                    "discovery_method": link.discovery_method,
+                    "platform": link.platform,
+                    "anchor_text": link.anchor_text,
+                    "query": seed.get("query", ""),
+                    "date_capture": datetime.now(timezone.utc).date().isoformat(),
+                    "status": link.status,
+                })
+                added += 1
+                platform_counts[link.platform or platform] += 1
+                if len(extracted) >= max_links:
+                    break
+            LOGGER.info("[ETL - Extraction] %s liens trouves depuis %s", added, seed.get("name", method))
+    for candidate in await static_task:
+        if len(extracted) >= max_links:
+            break
+        url = _canonical_candidate_url(candidate.get("url", ""))
+        if not url:
+            LOGGER.warning("[REJET] URL statique vide ou invalide apres nettoyage: %s", candidate.get("url", ""))
+            continue
+        if url in seen:
+            LOGGER.warning("[REJET] URL statique dedupliquee: %s", url)
+            continue
+        seen.add(url)
+        candidate["url"] = url
+        extracted.append(candidate)
+    return extracted
+
+
+def mvp_extract(args: argparse.Namespace) -> list[dict]:
+    """Run the Extraction step and persist raw candidates line by line.
+
+    Inputs:
+        args.max_links controls the global extraction target.
+
+    Output:
+        Raw candidate dictionaries saved to data/intermediate/candidates.jsonl.
+    """
+    settings = load_yaml(CONFIG / "settings.yaml")
+    seeds = load_seed_sources(CONFIG / "seed_sources.yaml")
+    social_count = len(_social_seeds(seeds))
+    static_count = len(_static_background_seeds(seeds))
+    LOGGER.info(
+        "[ETL - Extraction] Demarrage MVP avec %s seeds sociaux et %s seeds statiques",
+        social_count,
+        static_count,
+    )
+    records = asyncio.run(mvp_extract_async(seeds, settings, int(args.max_links)))
+    export_jsonl(records, CANDIDATES_PATH)
+    LOGGER.info("[ETL - Extraction] %s liens bruts sauvegardes dans %s", len(records), CANDIDATES_PATH)
+    return records
+
+
+def mvp_transform(args: argparse.Namespace) -> list[dict]:
+    """Transform raw candidates into validated Darija/culture catalogue records.
+
+    Inputs:
+        data/intermediate/candidates.jsonl generated by mvp_extract.
+        args.min_darija_density is the minimum density score required to keep a URL.
+
+    Output:
+        Catalogue-shaped records saved to data/intermediate/verified.jsonl.
+    """
+    candidates = load_jsonl(CANDIDATES_PATH)
+    threshold = float(args.min_darija_density)
+    verified: list[dict] = []
+    for idx, candidate in enumerate(candidates, start=1):
+        # Social platforms do not always expose descriptions without API access.
+        # We therefore combine the available public signals before Darija scoring.
+        text = " ".join(str(candidate.get(key, "")) for key in ["anchor_text", "query", "source_name", "url"])
+        density = calculate_darija_score(text)
+        url = _canonical_candidate_url(candidate["url"])
+        if not url:
+            LOGGER.warning("[REJET] URL invalide pendant transformation: %s", candidate.get("url", ""))
+            continue
+        platform = candidate.get("platform") or ("YouTube" if "youtube.com" in url or "youtu.be" in url else "Facebook")
+        probable_keep = bool(density.get("probable_keep")) or density.get("decision") == "CONSERVER_PROBABLE"
+        # MVP rule: a candidate must have enough Darija/Moroccan lexical density.
+        if density["density"] < threshold and not probable_keep and platform not in STATIC_BACKGROUND_PLATFORMS:
+            LOGGER.warning(
+                "[REJET] Densite Darija insuffisante: score=%.4f seuil=%.4f url=%s tokens=%s/%s",
+                density["density"],
+                threshold,
+                url,
+                density.get("matched_tokens", 0),
+                density.get("total_tokens", 0),
+            )
+            continue
+        record = {column: "" for column in CATALOG_COLUMNS}
+        is_static_platform = platform in STATIC_BACKGROUND_PLATFORMS
+        decision = (
+            "A_recontroler"
+            if is_static_platform and density["density"] < threshold
+            else "CONSERVER_PROBABLE"
+            if probable_keep and density["density"] < threshold
+            else "Conserver"
+        )
+        content_type = {
+            "YouTube": "Video",
+            "Facebook": "Post_public",
+            "Kaggle": "Dataset",
+            "GitHub": "Repository",
+        }.get(platform, "Source_web")
+        # Build records directly in the Excel schema expected by storage/excel_exporter.py.
+        record.update({
+            "ID": len(verified) + 1,
+            "Nom_source": candidate.get("source_name") or platform,
+            "URL_originale": url,
+            "URL_finale": url,
+            "Domaine": get_domain(url),
+            "Categorie_principale": candidate.get("source_category", "Audio_video"),
+            "Sous_categories": platform,
+            "Description_source": candidate.get("anchor_text") or candidate.get("query") or candidate.get("source_name", ""),
+            "Type_source": "plateforme_statique" if is_static_platform else "reseau_social_public",
+            "Type_contenu": content_type,
+            "Langue_principale": density["detected_variant"],
+            "Pourcentage_script_arabe": "",
+            "Pourcentage_script_latin": "",
+            "Score_darija": int(round(density["density"] * 100)),
+            "Mots_darija_detectes": ", ".join(density.get("arabizi_tokens", [])),
+            "Arabizi_detecte": "Oui" if density.get("arabizi_tokens") else "Non",
+            "Decision_linguistique": decision,
+            "Contenu_parallele": "Non",
+            "Usage_IA": "source_dataset_code" if is_static_platform else "corpus_social_darija",
+            "Methode_acces": "HTTPX" if is_static_platform else "Playwright",
+            "Statut_HTTP": "",
+            "Statut_lien": "A_verifier",
+            "Redirection": "Non",
+            "Robots_txt": "A_verifier",
+            "Licence": "Inconnue",
+            "Autorisation_entrainement_IA": "A_verifier",
+            "Priorite": candidate.get("source_priority", "P1"),
+            "Score_pertinence": int(round(density["density"] * 100)),
+            "Score_fiabilite": 60,
+            "Date_verification": datetime.now(timezone.utc).date().isoformat(),
+            "Source_decouverte": candidate.get("source_url", ""),
+            "Mots_cles_associes": candidate.get("query", ""),
+            "Notes": (
+                f"MVP uv ETL; densite_darija={density['density']}; "
+                f"decision={density.get('decision', decision)}; "
+                f"tokens={density['matched_tokens']}/{density['total_tokens']}; "
+                f"signaux_forts={', '.join(density.get('high_signal_tokens', []))}"
+            ),
+            "platform": platform,
+        })
+        verified.append(record)
+    export_jsonl(verified, VERIFIED_PATH)
+    LOGGER.info("[ETL - Transformation] %s/%s liens gardes avec densite >= %.2f", len(verified), len(candidates), threshold)
+    return verified
+
+
+def mvp_load(args: argparse.Namespace) -> list[dict]:
+    """Load validated records into final MVP outputs.
+
+    Inputs:
+        data/intermediate/verified.jsonl generated by mvp_transform.
+
+    Output:
+        data/output/catalogue_sources_marocaines_ai.xlsx and .jsonl for AI training.
+    """
+    records = load_jsonl(VERIFIED_PATH)
+    export_jsonl(records, JSONL_PATH)
+    export_csv(records, CSV_PATH, CATALOG_COLUMNS)
+    DataExporter(records).export_excel_by_platform(XLSX_PATH)
+    export_manual_review(records)
+    LOGGER.info("[ETL - Load] Export Excel: %s", XLSX_PATH)
+    LOGGER.info("[ETL - Load] Export JSONL IA: %s", JSONL_PATH)
+    LOGGER.info("[ETL - Load] Export revue manuelle: %s", REVIEW_CSV_PATH)
+    return records
+
+
+def run_mvp_etl(args: argparse.Namespace) -> dict:
+    """Execute the MVP ETL linearly: Extraction -> Transformation -> Load.
+
+    Inputs:
+        CLI args from `uv run python -m src.main`.
+
+    Output:
+        A summary dictionary printed in the terminal for the jury/demo.
+    """
+    LOGGER.info("[MVP] Pipeline lance via uv-compatible entrypoint")
+    candidates = mvp_extract(args)
+    validated = mvp_transform(args)
+    records = mvp_load(args)
+    return {
+        "mode": "mvp_social_etl",
+        "raw_candidates": len(candidates),
+        "validated_records": len(validated),
+        "exported_records": len(records),
+        "candidates_jsonl": str(CANDIDATES_PATH),
+        "catalogue_xlsx": str(XLSX_PATH),
+        "manual_review_csv": str(REVIEW_CSV_PATH),
+        "training_jsonl": str(JSONL_PATH),
+        "uv_command": "uv run python -m src.main",
+    }
+
+
 def candidate_to_dict(candidate: LinkCandidate) -> dict:
+    """Convertit un LinkCandidate en dictionnaire serialisable JSONL."""
     return {
         "url": candidate.url,
         "source_name": candidate.source_name,
@@ -71,6 +624,7 @@ def candidate_to_dict(candidate: LinkCandidate) -> dict:
 
 
 def candidate_from_dict(data: dict) -> LinkCandidate:
+    """Reconstruit un LinkCandidate depuis une ligne JSONL chargee en dictionnaire."""
     return LinkCandidate(
         url=data["url"],
         source_name=data.get("source_name", ""),
@@ -84,6 +638,7 @@ def candidate_from_dict(data: dict) -> LinkCandidate:
 
 
 def collect(args: argparse.Namespace) -> list[dict]:
+    """Execute le crawler historique et sauvegarde les candidats bruts dans candidates.jsonl."""
     settings = load_yaml(CONFIG / "settings.yaml")
     seeds = load_seed_sources(CONFIG / "seed_sources.yaml", getattr(args, "category", None))
     crawler = CatalogCrawler(settings, LOGS)
@@ -95,6 +650,7 @@ def collect(args: argparse.Namespace) -> list[dict]:
 
 
 def _base_record(candidate: LinkCandidate, idx: int, check: dict, settings: dict, regions_config: dict) -> dict:
+    """Construit une ligne catalogue analysee, verifiee, enrichie et scoree."""
     now = datetime.now(timezone.utc).date().isoformat()
     final_url = check.get("final_url") or candidate.url
     html = check.get("html") or ""
@@ -153,6 +709,7 @@ def _base_record(candidate: LinkCandidate, idx: int, check: dict, settings: dict
 
 
 def _canonical_from_html(html: str, fallback_url: str) -> str:
+    """Extrait l'URL canonique d'une page HTML ou retourne l'URL de secours."""
     if not html:
         return fallback_url
     soup = BeautifulSoup(html, "lxml")
@@ -161,6 +718,7 @@ def _canonical_from_html(html: str, fallback_url: str) -> str:
 
 
 def _to_expanded_record(record: dict, idx: int, batch_id: str = "") -> dict:
+    """Adapte une ligne catalogue au schema enrichi utilise par l'export d'expansion."""
     url_finale = record.get("URL_finale") or record.get("URL_originale") or ""
     expanded = {column: record.get(column, "") for column in EXPANDED_COLUMNS}
     expanded.update({
@@ -183,6 +741,7 @@ def _to_expanded_record(record: dict, idx: int, batch_id: str = "") -> dict:
 
 
 def _expanded_new_record(candidate, idx: int, check: dict, settings: dict, regions_config: dict, batch_id: str) -> dict:
+    """Transforme un nouveau candidat d'expansion en ligne enrichie avec hashes et metadata."""
     link_candidate = LinkCandidate(
         url=candidate.url,
         source_name=candidate.source,
@@ -217,6 +776,7 @@ def _expanded_new_record(candidate, idx: int, check: dict, settings: dict, regio
 
 
 def _write_domains_csv(records: list[dict], path: Path) -> None:
+    """Ecrit un resume CSV par domaine pour les nouveaux liens decouverts."""
     grouped: dict[str, list[dict]] = defaultdict(list)
     for record in records:
         if record.get("Domaine"):
@@ -238,6 +798,7 @@ def _write_domains_csv(records: list[dict], path: Path) -> None:
 
 
 def expand(args: argparse.Namespace) -> dict:
+    """Elargit un catalogue existant avec de nouveaux liens dedupliques et exporte les resultats."""
     settings = load_yaml(CONFIG / "settings.yaml")
     settings.update({
         "max_depth": 3,
@@ -332,6 +893,7 @@ def expand(args: argparse.Namespace) -> dict:
 
 
 def verify(args: argparse.Namespace) -> list[dict]:
+    """Verifie les URLs candidates, analyse leur contenu et sauvegarde les lignes validees."""
     settings = load_yaml(CONFIG / "settings.yaml")
     regions_config = load_yaml(CONFIG / "regions.yaml")
     candidates_data = load_jsonl(CANDIDATES_PATH)
@@ -367,23 +929,27 @@ def verify(args: argparse.Namespace) -> list[dict]:
 
 
 def export_outputs(args: argparse.Namespace) -> list[dict]:
+    """Ecrit les donnees transformees en JSONL, CSV, Excel et fichier de revue manuelle."""
     records = load_jsonl(VERIFIED_PATH)
     if not records:
         records = verify(args)
     export_jsonl(records, JSONL_PATH)
     export_csv(records, CSV_PATH, CATALOG_COLUMNS)
-    export_excel(records, XLSX_PATH)
+    DataExporter(records).export_excel_by_platform(XLSX_PATH)
+    export_manual_review(records)
     LOGGER.info("Exported JSONL, CSV and Excel")
     return records
 
 
 def run_all(args: argparse.Namespace) -> list[dict]:
+    """Execute la chaine historique collect -> verify -> export."""
     collect(args)
     verify(args)
     return export_outputs(args)
 
 
 def audit_links(args: argparse.Namespace) -> dict:
+    """Audite les liens d'un fichier Excel et produit un classeur annote avec les decisions."""
     settings = load_yaml(CONFIG / "settings.yaml")
     input_path = resolve_excel_path(args.input, ROOT)
     rows, sheet_name, url_column = load_url_rows(input_path)
@@ -473,8 +1039,18 @@ def audit_links(args: argparse.Namespace) -> dict:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Moroccan AI sources collector")
-    sub = parser.add_subparsers(dest="command", required=True)
+    """Construit le parseur CLI et declare toutes les commandes disponibles."""
+    parser = argparse.ArgumentParser(
+        description="Moroccan AI sources collector MVP",
+        epilog=MVP_UV_USAGE,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    parser.add_argument("--max-links", type=int, default=800, help="MVP target for raw YouTube/Facebook candidates.")
+    parser.add_argument("--min-darija-density", type=float, default=0.15, help="Minimum Darija density required after transformation.")
+    sub = parser.add_subparsers(dest="command", required=False)
+    mvp_cmd = sub.add_parser("mvp", help="Run the uv-compatible MVP ETL: Extraction -> Transformation -> Load.")
+    mvp_cmd.add_argument("--max-links", type=int, default=800)
+    mvp_cmd.add_argument("--min-darija-density", type=float, default=0.15)
     for name in ["collect", "verify", "export", "run-all"]:
         cmd = sub.add_parser(name)
         cmd.add_argument("--max-links", type=int, default=None)
@@ -498,15 +1074,22 @@ def build_parser() -> argparse.ArgumentParser:
     audit_cmd.add_argument("--max-results-per-search", type=int, default=20)
     audit_cmd.add_argument("--max-links-per-domain", type=int, default=40)
     audit_cmd.add_argument("--force", action="store_true")
+    crawler_cmd = sub.add_parser("export-crawler-input")
+    crawler_cmd.add_argument("--input", default=str(REVIEW_CSV_PATH))
+    crawler_cmd.add_argument("--urls-output", default=str(CRAWLER_URLS_PATH))
+    crawler_cmd.add_argument("--manifest-output", default=str(CRAWLER_MANIFEST_PATH))
     return parser
 
 
 def main(argv: list[str] | None = None) -> None:
+    """Point d'entree executable appele par la ligne de commande."""
     setup_logging(LOGS)
     args = build_parser().parse_args(argv)
     INTERMEDIATE.mkdir(parents=True, exist_ok=True)
     OUTPUT.mkdir(parents=True, exist_ok=True)
-    if args.command == "collect":
+    if args.command in {None, "mvp"}:
+        print(json.dumps(run_mvp_etl(args), ensure_ascii=False, indent=2))
+    elif args.command == "collect":
         collect(args)
     elif args.command == "verify":
         verify(args)
@@ -519,11 +1102,18 @@ def main(argv: list[str] | None = None) -> None:
             "jsonl": str(JSONL_PATH),
             "csv": str(CSV_PATH),
             "xlsx": str(XLSX_PATH),
+            "manual_review_csv": str(REVIEW_CSV_PATH),
         }, ensure_ascii=False, indent=2))
     elif args.command == "expand":
         print(json.dumps(expand(args), ensure_ascii=False, indent=2))
     elif args.command == "audit-links":
         print(json.dumps(audit_links(args), ensure_ascii=False, indent=2))
+    elif args.command == "export-crawler-input":
+        print(json.dumps(export_crawler_input_from_review(
+            _resolve_output_path(args.input),
+            _resolve_output_path(args.urls_output),
+            _resolve_output_path(args.manifest_output),
+        ), ensure_ascii=False, indent=2))
 
 
 if __name__ == "__main__":

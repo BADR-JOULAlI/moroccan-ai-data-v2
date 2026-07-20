@@ -1,7 +1,10 @@
+"""Tests automatis?s qui documentent et prot?gent le comportement attendu du projet."""
+
 from src.scoring.scorer import score_record
 
 
 def test_score_record_p0():
+    """V?rifie le comportement attendu d?une fonctionnalit? du projet."""
     record = {
         "URL_finale": "https://example.com/darija-dataset-morocco",
         "Description_source": "Darija parallel corpus",

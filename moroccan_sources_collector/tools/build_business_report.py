@@ -1,3 +1,5 @@
+"""Module Python document? du projet moroccan_sources_collector."""
+
 from __future__ import annotations
 
 import json
@@ -31,12 +33,14 @@ GRAY = "F2F4F7"
 
 
 def load_jsonl(path: Path) -> list[dict]:
+    """Charge des donn?es ou une configuration depuis le disque et retourne une structure exploitable."""
     if not path.exists():
         return []
     return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
 
 
 def metrics() -> dict:
+    """D?crit le fonctionnement de `metrics` et retourne le r?sultat attendu par le module."""
     new_records = load_jsonl(OUTPUT / "nouveaux_liens.jsonl")
     base_records = load_jsonl(OUTPUT / "catalogue_sources_marocaines_ai.jsonl")
     total_final = 421 if new_records else len(base_records)
@@ -54,6 +58,7 @@ def metrics() -> dict:
 
 
 def font(size: int, bold: bool = False):
+    """D?crit le fonctionnement de `font` et retourne le r?sultat attendu par le module."""
     candidates = [
         "C:/Windows/Fonts/arialbd.ttf" if bold else "C:/Windows/Fonts/arial.ttf",
         "C:/Windows/Fonts/calibrib.ttf" if bold else "C:/Windows/Fonts/calibri.ttf",
@@ -65,10 +70,12 @@ def font(size: int, bold: bool = False):
 
 
 def rounded(draw: ImageDraw.ImageDraw, box, fill, outline=None, radius=22, width=2):
+    """D?crit le fonctionnement de `rounded` et retourne le r?sultat attendu par le module."""
     draw.rounded_rectangle(box, radius=radius, fill=f"#{fill}", outline=f"#{outline}" if outline else None, width=width)
 
 
 def save_pipeline(path: Path) -> None:
+    """D?crit le fonctionnement de `save_pipeline` et retourne le r?sultat attendu par le module."""
     img = Image.new("RGB", (1600, 520), "white")
     draw = ImageDraw.Draw(img)
     title = font(44, True)
@@ -96,6 +103,7 @@ def save_pipeline(path: Path) -> None:
 
 
 def save_kpis(path: Path, m: dict) -> None:
+    """D?crit le fonctionnement de `save_kpis` et retourne le r?sultat attendu par le module."""
     img = Image.new("RGB", (1600, 650), "white")
     draw = ImageDraw.Draw(img)
     draw.text((55, 35), "Indicateurs cles de l'execution", fill=f"#{DARK}", font=font(44, True))
@@ -116,6 +124,7 @@ def save_kpis(path: Path, m: dict) -> None:
 
 
 def save_architecture(path: Path) -> None:
+    """D?crit le fonctionnement de `save_architecture` et retourne le r?sultat attendu par le module."""
     img = Image.new("RGB", (1600, 650), "white")
     draw = ImageDraw.Draw(img)
     draw.text((55, 35), "Architecture fonctionnelle", fill=f"#{DARK}", font=font(44, True))
@@ -137,6 +146,7 @@ def save_architecture(path: Path) -> None:
 
 
 def set_cell_fill(cell, fill: str) -> None:
+    """D?crit le fonctionnement de `set_cell_fill` et retourne le r?sultat attendu par le module."""
     tc_pr = cell._tc.get_or_add_tcPr()
     shd = OxmlElement("w:shd")
     shd.set(qn("w:fill"), fill)
@@ -144,6 +154,7 @@ def set_cell_fill(cell, fill: str) -> None:
 
 
 def set_cell_margins(table, top=80, start=120, bottom=80, end=120):
+    """D?crit le fonctionnement de `set_cell_margins` et retourne le r?sultat attendu par le module."""
     tbl_pr = table._tbl.tblPr
     margins = tbl_pr.first_child_found_in("w:tblCellMar")
     if margins is None:
@@ -159,6 +170,7 @@ def set_cell_margins(table, top=80, start=120, bottom=80, end=120):
 
 
 def style_doc(doc: Document) -> None:
+    """D?crit le fonctionnement de `style_doc` et retourne le r?sultat attendu par le module."""
     section = doc.sections[0]
     section.top_margin = Inches(1)
     section.bottom_margin = Inches(1)
@@ -186,6 +198,7 @@ def style_doc(doc: Document) -> None:
 
 
 def add_title(doc: Document) -> None:
+    """D?crit le fonctionnement de `add_title` et retourne le r?sultat attendu par le module."""
     p = doc.add_paragraph()
     p.alignment = WD_ALIGN_PARAGRAPH.CENTER
     p.paragraph_format.space_after = Pt(8)
@@ -203,6 +216,7 @@ def add_title(doc: Document) -> None:
 
 
 def add_callout(doc: Document, title: str, text: str, fill: str = "F4F6F9") -> None:
+    """D?crit le fonctionnement de `add_callout` et retourne le r?sultat attendu par le module."""
     table = doc.add_table(rows=1, cols=1)
     table.autofit = False
     table.columns[0].width = Inches(6.5)
@@ -220,6 +234,7 @@ def add_callout(doc: Document, title: str, text: str, fill: str = "F4F6F9") -> N
 
 
 def add_metric_table(doc: Document, m: dict) -> None:
+    """D?crit le fonctionnement de `add_metric_table` et retourne le r?sultat attendu par le module."""
     rows = [
         ("Lignes existantes chargees", str(m["existing_rows"])),
         ("Domaines existants", str(m["existing_domains"])),
@@ -249,6 +264,7 @@ def add_metric_table(doc: Document, m: dict) -> None:
 
 
 def add_bullets(doc: Document, items: list[str]) -> None:
+    """D?crit le fonctionnement de `add_bullets` et retourne le r?sultat attendu par le module."""
     for item in items:
         p = doc.add_paragraph(style="List Bullet")
         p.paragraph_format.space_after = Pt(4)
@@ -256,6 +272,7 @@ def add_bullets(doc: Document, items: list[str]) -> None:
 
 
 def build() -> Path:
+    """Construit une structure ou un objet de sortie ? partir des param?tres fournis."""
     REPORTS.mkdir(exist_ok=True)
     ASSETS.mkdir(parents=True, exist_ok=True)
     m = metrics()

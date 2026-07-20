@@ -1,3 +1,5 @@
+"""Module d?audit technique des URLs et des fichiers Excel g?n?r?s."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -25,6 +27,7 @@ from src.validation.url_checker import check_url
 
 @dataclass
 class AuditConfig:
+    """Objet de configuration regroupant les param?tres utilis?s par AuditConfig."""
     timeout: float = 20.0
     user_agent: str = "MoroccanSourcesCollector/0.1 audit"
     max_results_per_search: int = 20
@@ -34,14 +37,18 @@ class AuditConfig:
 
 
 class UrlAuditor:
+    """Classe m?tier utilis?e pour structurer le comportement ou les donn?es de UrlAuditor."""
     def __init__(self, cache_path: Path, config: AuditConfig):
+        """D?crit le fonctionnement de `__init__` et retourne le r?sultat attendu par le module."""
         self.cache = JsonCache(cache_path, ttl_hours=168)
         self.config = config
 
     def close(self) -> None:
+        """D?crit le fonctionnement de `close` et retourne le r?sultat attendu par le module."""
         self.cache.save()
 
     def audit(self, row: dict) -> dict:
+        """D?crit le fonctionnement de `audit` et retourne le r?sultat attendu par le module."""
         original = row.get("_input_url") or row.get("URL_finale") or row.get("URL_originale") or ""
         normalized = normalize_url(str(original))
         cached = self.cache.get(normalized, force=self.config.force)
@@ -103,6 +110,7 @@ class UrlAuditor:
         }
 
     def replacement_record(self, parent: dict, replacement_url: str, rank: int) -> dict:
+        """D?crit le fonctionnement de `replacement_record` et retourne le r?sultat attendu par le module."""
         row = {"_input_url": replacement_url, "Nom_source": f"Remplacement {parent.get('Plateforme')}"}
         result = self.audit(row)
         result["URL_recherche_origine"] = parent["URL_originale"]
@@ -113,6 +121,7 @@ class UrlAuditor:
         return result
 
     def _check_with_retries(self, url: str) -> dict:
+        """D?crit le fonctionnement de `_check_with_retries` et retourne le r?sultat attendu par le module."""
         last_result = None
         for attempt in range(1, max(self.config.max_attempts, 1) + 1):
             result = check_url(url, timeout=self.config.timeout, user_agent=self.config.user_agent)
@@ -134,6 +143,7 @@ class UrlAuditor:
         }
 
     def _type_url(self, url: str, content_type: str, problem: str) -> str:
+        """D?crit le fonctionnement de `_type_url` et retourne le r?sultat attendu par le module."""
         if problem == "ZERO_RESULTAT":
             return "PAGE_RECHERCHE"
         if problem == "SOFT_404":
@@ -162,6 +172,7 @@ class UrlAuditor:
         return "INDETERMINEE"
 
     def _platform_hint(self, url: str, title: str, text: str, html: str) -> dict:
+        """D?crit le fonctionnement de `_platform_hint` et retourne le r?sultat attendu par le module."""
         for fn in (validate_github, validate_huggingface, validate_kaggle, validate_zenodo):
             hint = fn(url, title, text, html, self.config.max_results_per_search)
             if hint:
@@ -169,6 +180,7 @@ class UrlAuditor:
         return {}
 
     def _decision(self, type_url: str, check: dict, problem: dict, hint: dict, scores: dict) -> tuple[str, str]:
+        """D?crit le fonctionnement de `_decision` et retourne le r?sultat attendu par le module."""
         if hint.get("Decision_hint"):
             return hint["Decision_hint"], hint.get("Raison_hint", "")
         status = check.get("status_http")
@@ -188,6 +200,7 @@ class UrlAuditor:
 
     @staticmethod
     def _javascript_required(html: str, content_type: str) -> bool:
+        """D?crit le fonctionnement de `_javascript_required` et retourne le r?sultat attendu par le module."""
         if "html" not in (content_type or ""):
             return False
         text_len = len(BeautifulSoup(html or "", "lxml").get_text(" ", strip=True))

@@ -1,3 +1,5 @@
+"""Module d?analyse linguistique ou m?tier utilis? pendant la transformation des donn?es."""
+
 from __future__ import annotations
 
 from langdetect import LangDetectException, detect
@@ -6,6 +8,7 @@ from src.analysis.darija_detector import detect_darija
 
 
 def detect_language(text: str) -> dict:
+    """D?tecte un signal linguistique, technique ou m?tier et retourne un r?sultat structur?."""
     darija = detect_darija(text)
     if darija["Langue_principale"] != "indeterminee":
         return darija

@@ -1,3 +1,5 @@
+"""Module d?analyse linguistique ou m?tier utilis? pendant la transformation des donn?es."""
+
 from __future__ import annotations
 
 from bs4 import BeautifulSoup
@@ -11,6 +13,7 @@ from src.validation.license_checker import detect_license
 
 
 def analyze_page(html: str, url: str, seed_category: str, regions_config: dict) -> dict:
+    """D?crit le fonctionnement de `analyze_page` et retourne le r?sultat attendu par le module."""
     soup = BeautifulSoup(html or "", "lxml")
     title = clean_text(soup.title.get_text(" ", strip=True)) if soup.title else ""
     meta = soup.find("meta", attrs={"name": "description"})

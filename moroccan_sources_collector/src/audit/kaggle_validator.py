@@ -1,3 +1,5 @@
+"""Module d?audit technique des URLs et des fichiers Excel g?n?r?s."""
+
 from __future__ import annotations
 
 from urllib.parse import urlparse
@@ -6,6 +8,7 @@ from src.audit.replacement_extractor import extract_concrete_links
 
 
 def validate_kaggle(url: str, title: str, text: str, html: str, max_results: int = 20) -> dict:
+    """Valide une ressource selon les r?gles m?tier ou techniques du projet."""
     parsed = urlparse(url)
     if "kaggle.com" not in parsed.netloc.lower():
         return {}

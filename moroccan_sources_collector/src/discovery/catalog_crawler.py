@@ -1,11 +1,15 @@
+"""Module de d?couverte de sources et d?extraction de liens candidats."""
+
 from __future__ import annotations
 
+import asyncio
 import logging
 import time
-from collections import defaultdict, deque
+from collections import Counter, defaultdict, deque
 from pathlib import Path
 
-from src.discovery.link_extractor import extract_links
+from src.discovery.link_extractor import DiscoveredLink, extract_links
+from src.discovery.search_adapters import BrowserDiscoveryConfig, PlaywrightDiscoveryAdapter
 from src.utils.url_utils import LinkCandidate, get_registered_domain, normalize_url
 from src.validation.robots_checker import robots_status
 from src.validation.url_checker import check_url
@@ -14,12 +18,88 @@ LOGGER = logging.getLogger(__name__)
 
 
 class CatalogCrawler:
+    """Discovery orchestrator.
+
+    The class keeps the original HTTP crawler for stable catalog sites and adds a
+    native async Playwright discovery layer for dynamic public pages such as
+    YouTube search results, YouTube channel tabs, Google dorks, and public
+    Facebook pages.
+    """
+
     def __init__(self, settings: dict, log_dir: Path):
+        """D?crit le fonctionnement de `__init__` et retourne le r?sultat attendu par le module."""
         self.settings = settings
         self.log_dir = log_dir
 
     def crawl(self, seeds: list[dict], max_links: int | None = None) -> list[LinkCandidate]:
+        """Parcourt des sources distantes pour d?couvrir de nouvelles URLs candidates."""
         max_links = max_links or self.settings.get("max_total_links", 500)
+        http_seeds = [seed for seed in seeds if not self._is_playwright_seed(seed)]
+        browser_seeds = [seed for seed in seeds if self._is_playwright_seed(seed)]
+        results: list[LinkCandidate] = []
+
+        dynamic_first = bool(self.settings.get("playwright_discovery_first", True))
+        dynamic_budget = max_links if not http_seeds else int(max_links * float(self.settings.get("playwright_discovery_budget_ratio", 0.7)))
+        dynamic_budget = max(0, min(max_links, dynamic_budget))
+
+        if browser_seeds and dynamic_first and dynamic_budget > 0:
+            try:
+                results.extend(asyncio.run(self.crawl_playwright_async(browser_seeds, dynamic_budget)))
+            except RuntimeError as exc:
+                LOGGER.error("Playwright discovery skipped: %s", exc)
+
+        remaining = max(max_links - len(results), 0)
+        if http_seeds and remaining > 0:
+            results.extend(self._crawl_http(http_seeds, max_links=remaining))
+
+        remaining = max(max_links - len(results), 0)
+        if browser_seeds and not dynamic_first and remaining > 0:
+            try:
+                results.extend(asyncio.run(self.crawl_playwright_async(browser_seeds, remaining)))
+            except RuntimeError as exc:
+                LOGGER.error("Playwright discovery skipped: %s", exc)
+        return self._dedupe_candidates(results)[:max_links]
+
+    async def crawl_playwright_async(self, seeds: list[dict], max_links: int | None = None) -> list[LinkCandidate]:
+        """Parcourt des sources distantes pour d?couvrir de nouvelles URLs candidates."""
+        records = await self.discover_structured_async(seeds, max_links=max_links)
+        return [self._record_to_candidate(record) for record in records]
+
+    async def discover_structured_async(self, seeds: list[dict], max_links: int | None = None) -> list[dict]:
+        """D?crit le fonctionnement de `discover_structured_async` et retourne le r?sultat attendu par le module."""
+        max_links = max_links or self.settings.get("max_total_links", 500)
+        config = self._browser_config()
+        raw_links: list[DiscoveredLink] = []
+        domain_counts: Counter[str] = Counter()
+        max_links_per_domain = int(self.settings.get("max_links_per_domain", self.settings.get("max_pages_per_domain", 40)))
+
+        async with PlaywrightDiscoveryAdapter(config) as adapter:
+            semaphore = asyncio.Semaphore(config.max_concurrent_pages)
+
+            async def run_seed(seed: dict) -> list[DiscoveredLink]:
+                """Ex?cute une ?tape compl?te du pipeline et retourne un r?sum? ou des r?sultats."""
+                async with semaphore:
+                    return await self._run_browser_seed(adapter, seed)
+
+            for batch_start in range(0, len(seeds), config.max_concurrent_pages):
+                batch = seeds[batch_start : batch_start + config.max_concurrent_pages]
+                for result in await asyncio.gather(*(run_seed(seed) for seed in batch)):
+                    for link in result:
+                        domain = get_registered_domain(link.url)
+                        if domain_counts[domain] >= max_links_per_domain:
+                            continue
+                        domain_counts[domain] += 1
+                        raw_links.append(link)
+                        if len(raw_links) >= max_links:
+                            break
+                    if len(raw_links) >= max_links:
+                        break
+                if len(raw_links) >= max_links:
+                    break
+        return self._dedupe_records([link.as_dict() for link in raw_links])[:max_links]
+
+    def _crawl_http(self, seeds: list[dict], max_links: int) -> list[LinkCandidate]:
+        """D?crit le fonctionnement de `_crawl_http` et retourne le r?sultat attendu par le module."""
         max_depth = self.settings.get("max_depth", 2)
         max_pages_per_domain = self.settings.get("max_pages_per_domain", 20)
         delay = float(self.settings.get("delay_between_requests_seconds", 1.5))
@@ -28,6 +108,8 @@ class CatalogCrawler:
 
         queue: deque[LinkCandidate] = deque()
         for seed in seeds:
+            if not seed.get("url"):
+                continue
             queue.append(
                 LinkCandidate(
                     url=normalize_url(seed["url"]),
@@ -63,9 +145,10 @@ class CatalogCrawler:
                 if len(results) + len(queue) >= max_links * 2:
                     break
                 child_domain = get_registered_domain(child_url)
-                relevant = child_domain == domain or any(token in (anchor_text + " " + child_url).lower() for token in [
-                    "darija", "moroccan", "maroc", "المغرب", "دارجة", "arabic", "dataset", "corpus", "culture"
-                ])
+                relevant = child_domain == domain or any(
+                    token in (anchor_text + " " + child_url).lower()
+                    for token in ["darija", "moroccan", "maroc", "المغرب", "دارجة", "arabic", "dataset", "corpus", "culture"]
+                )
                 if relevant and child_url not in seen:
                     queue.append(
                         LinkCandidate(
@@ -83,3 +166,101 @@ class CatalogCrawler:
             if delay:
                 time.sleep(min(delay, 0.25))
         return results[:max_links]
+
+    async def _run_browser_seed(self, adapter: PlaywrightDiscoveryAdapter, seed: dict) -> list[DiscoveredLink]:
+        """D?crit le fonctionnement de `_run_browser_seed` et retourne le r?sultat attendu par le module."""
+        method = str(seed.get("discovery_method") or "").lower()
+        limit = int(seed.get("max_results") or seed.get("max_pages") or self.settings.get("max_results_per_query", 50))
+        query = seed.get("query") or seed.get("name") or ""
+        url = seed.get("url") or ""
+
+        if method in {"youtube_search", "youtube_keyword"}:
+            return await adapter.youtube_search(query, limit)
+        if method in {"youtube_channel", "youtube_videos"}:
+            return await adapter.youtube_channel_videos(url, "videos", limit)
+        if method == "youtube_shorts":
+            return await adapter.youtube_channel_videos(url, "shorts", limit)
+        if method in {"facebook_page", "facebook_public_page"}:
+            return await adapter.facebook_public_page_posts(url, limit)
+        if method in {"google_facebook_dork", "facebook_dork"}:
+            return await adapter.google_facebook_dork(query, limit)
+        if method in {"google_search", "web_search"}:
+            return await adapter.google_search(query, limit)
+        if seed.get("use_playwright"):
+            return await adapter.rendered_page_links(url, limit)
+        return []
+
+    def _browser_config(self) -> BrowserDiscoveryConfig:
+        """D?crit le fonctionnement de `_browser_config` et retourne le r?sultat attendu par le module."""
+        return BrowserDiscoveryConfig(
+            headless=bool(self.settings.get("playwright_headless", True)),
+            user_agent=self.settings.get("browser_user_agent", self.settings.get("user_agent", "")) or BrowserDiscoveryConfig().user_agent,
+            locale=self.settings.get("browser_locale", "fr-FR"),
+            timezone_id=self.settings.get("browser_timezone", "Africa/Casablanca"),
+            navigation_timeout_ms=int(self.settings.get("playwright_timeout_ms", 30000)),
+            min_delay_seconds=float(self.settings.get("playwright_min_delay_seconds", 0.8)),
+            max_delay_seconds=float(self.settings.get("playwright_max_delay_seconds", 2.2)),
+            scroll_pause_seconds=float(self.settings.get("playwright_scroll_pause_seconds", 1.2)),
+            max_scrolls=int(self.settings.get("playwright_max_scrolls", 18)),
+            max_results_per_query=int(self.settings.get("max_results_per_query", 50)),
+            max_concurrent_pages=int(self.settings.get("playwright_max_concurrent_pages", 2)),
+        )
+
+    @staticmethod
+    def _is_playwright_seed(seed: dict) -> bool:
+        """D?crit le fonctionnement de `_is_playwright_seed` et retourne le r?sultat attendu par le module."""
+        method = str(seed.get("discovery_method") or "").lower()
+        return bool(seed.get("use_playwright")) or method in {
+            "youtube_search",
+            "youtube_keyword",
+            "youtube_channel",
+            "youtube_videos",
+            "youtube_shorts",
+            "facebook_page",
+            "facebook_public_page",
+            "google_facebook_dork",
+            "facebook_dork",
+            "google_search",
+            "web_search",
+        }
+
+    @staticmethod
+    def _record_to_candidate(record: dict) -> LinkCandidate:
+        """D?crit le fonctionnement de `_record_to_candidate` et retourne le r?sultat attendu par le module."""
+        return LinkCandidate(
+            url=normalize_url(record["url"]),
+            source_name=record.get("source_origine") or record.get("platform") or "Playwright discovery",
+            source_url=record.get("source_origine", ""),
+            source_category=record.get("category", "Autre"),
+            source_priority=record.get("priority", "P2"),
+            discovery_method=record.get("discovery_method", "playwright"),
+            depth=0,
+            anchor_text=record.get("anchor_text", ""),
+        )
+
+    @staticmethod
+    def _dedupe_records(records: list[dict]) -> list[dict]:
+        """D?crit le fonctionnement de `_dedupe_records` et retourne le r?sultat attendu par le module."""
+        seen: set[str] = set()
+        unique: list[dict] = []
+        for record in records:
+            url = normalize_url(record.get("url", ""))
+            if not url or url in seen:
+                continue
+            seen.add(url)
+            record["url"] = url
+            unique.append(record)
+        return unique
+
+    @staticmethod
+    def _dedupe_candidates(candidates: list[LinkCandidate]) -> list[LinkCandidate]:
+        """D?crit le fonctionnement de `_dedupe_candidates` et retourne le r?sultat attendu par le module."""
+        seen: set[str] = set()
+        unique: list[LinkCandidate] = []
+        for candidate in candidates:
+            url = normalize_url(candidate.url)
+            if url in seen:
+                continue
+            seen.add(url)
+            unique.append(candidate)
+        return unique

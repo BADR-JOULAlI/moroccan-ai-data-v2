@@ -3,6 +3,23 @@ name = "moroccan-sources-collector"
 version = "0.1.0"
 description = "Catalogue collector for Moroccan Arabic, Darija, and Morocco-related AI training sources."
 requires-python = ">=3.11"
+dependencies = [
+    "beautifulsoup4",
+    "httpx",
+    "langdetect",
+    "lxml",
+    "openpyxl",
+    "pandas",
+    "playwright",
+    "python-dateutil",
+    "pytest",
+    "pytest-asyncio",
+    "pyyaml",
+    "requests",
+    "tldextract",
+    "tenacity",
+    "trafilatura",
+]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

@@ -1,3 +1,5 @@
+"""Module Python document? du projet moroccan_sources_collector."""
+
 from __future__ import annotations
 
 from datetime import datetime
@@ -22,6 +24,7 @@ DARK = "0B2545"
 
 
 def set_cell_fill(cell, fill: str) -> None:
+    """D?crit le fonctionnement de `set_cell_fill` et retourne le r?sultat attendu par le module."""
     tc_pr = cell._tc.get_or_add_tcPr()
     shd = OxmlElement("w:shd")
     shd.set(qn("w:fill"), fill)
@@ -29,6 +32,7 @@ def set_cell_fill(cell, fill: str) -> None:
 
 
 def set_cell_margins(table, top=80, start=120, bottom=80, end=120):
+    """D?crit le fonctionnement de `set_cell_margins` et retourne le r?sultat attendu par le module."""
     tbl_pr = table._tbl.tblPr
     margins = tbl_pr.first_child_found_in("w:tblCellMar")
     if margins is None:
@@ -44,6 +48,7 @@ def set_cell_margins(table, top=80, start=120, bottom=80, end=120):
 
 
 def style_document(doc: Document) -> None:
+    """D?crit le fonctionnement de `style_document` et retourne le r?sultat attendu par le module."""
     section = doc.sections[0]
     section.top_margin = Inches(1)
     section.bottom_margin = Inches(1)
@@ -67,6 +72,7 @@ def style_document(doc: Document) -> None:
 
 
 def add_title(doc: Document) -> None:
+    """D?crit le fonctionnement de `add_title` et retourne le r?sultat attendu par le module."""
     p = doc.add_paragraph()
     p.alignment = WD_ALIGN_PARAGRAPH.CENTER
     run = p.add_run("Rapport des modifications realisees aujourd'hui")
@@ -86,6 +92,7 @@ def add_title(doc: Document) -> None:
 
 
 def add_callout(doc: Document, title: str, text: str, fill: str = LIGHT_BLUE) -> None:
+    """D?crit le fonctionnement de `add_callout` et retourne le r?sultat attendu par le module."""
     table = doc.add_table(rows=1, cols=1)
     table.style = "Table Grid"
     set_cell_margins(table)
@@ -101,6 +108,7 @@ def add_callout(doc: Document, title: str, text: str, fill: str = LIGHT_BLUE) ->
 
 
 def add_bullets(doc: Document, items: list[str]) -> None:
+    """D?crit le fonctionnement de `add_bullets` et retourne le r?sultat attendu par le module."""
     for item in items:
         p = doc.add_paragraph(style="List Bullet")
         p.paragraph_format.space_after = Pt(4)
@@ -108,6 +116,7 @@ def add_bullets(doc: Document, items: list[str]) -> None:
 
 
 def add_summary_table(doc: Document) -> None:
+    """D?crit le fonctionnement de `add_summary_table` et retourne le r?sultat attendu par le module."""
     data = [
         ("Fichier Excel final", "catalogue_sources_marocaines_ai_FINAL.xlsx"),
         ("Lignes de donnees", "727"),
@@ -135,6 +144,7 @@ def add_summary_table(doc: Document) -> None:
 
 
 def build() -> Path:
+    """Construit une structure ou un objet de sortie ? partir des param?tres fournis."""
     REPORTS.mkdir(parents=True, exist_ok=True)
     doc = Document()
     style_document(doc)

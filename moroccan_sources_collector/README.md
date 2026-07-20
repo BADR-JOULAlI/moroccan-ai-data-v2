@@ -1,113 +1,162 @@
 # Moroccan Sources Collector
 
-Application Python pour decouvrir, verifier, analyser, classer et exporter des liens utiles a la constitution d'un corpus pour une IA marocaine.
+Application Python pour découvrir, analyser, filtrer et exporter des sources utiles à la constitution d’un corpus IA marocain.
 
-Le livrable principal est le fichier Excel :
+Le MVP actuel se concentre sur les sources sociales de haute qualité :
 
-`data/output/catalogue_sources_marocaines_ai.xlsx`
+- vidéos et chaînes YouTube ;
+- posts Facebook publics ;
+- contenus liés à la Darija, l’Arabizi, la culture et le patrimoine marocain.
 
-## Installation
+Le livrable principal est :
+
+```text
+data/output/catalogue_sources_marocaines_ai.xlsx
+```
+
+## Documentation
+
+La documentation technique complète est disponible ici :
+
+- [Architecture ETL](docs/ARCHITECTURE_ETL.md)
+- [Référence du code](docs/CODE_REFERENCE.md)
+
+## Installation avec uv
+
+Commandes recommandées pour un environnement propre :
 
 ```bash
-python -m venv .venv
-.venv\Scripts\activate
-pip install -r requirements.txt
-python -m playwright install chromium
+uv init
+uv add playwright httpx beautifulsoup4 openpyxl pyyaml pytest
+uv run playwright install chromium
 ```
 
-Playwright est seulement utilise comme repli lorsque les requetes HTTP classiques ne suffisent pas.
+Le fichier `pyproject.toml` contient aussi les dépendances nécessaires au projet.
 
-## Commandes
+## Lancement MVP
+
+Commande par défaut :
 
 ```bash
-python -m src.main collect
-python -m src.main verify
-python -m src.main export
-python -m src.main run-all --max-links 200
-python -m src.main run-all --force
-python -m src.main collect --category darija
-python -m src.main collect --category culture
-python -m src.main collect --category parallel
-python -m src.main verify --retry-errors
+uv run python -m src.main
 ```
 
-## Perimetre linguistique
-
-Le francais n'est pas collecte de maniere generale. Une source en francais est conservee seulement si elle contient une traduction, un lexique, des phrases paralleles, des dialogues bilingues, des sous-titres bilingues, des expressions marocaines, ou des donnees culturelles marocaines directement utiles au modele.
-
-Les pages principalement en anglais, espagnol, amazigh ou autres langues sont classees hors perimetre, sauf si elles decrivent ou distribuent un dataset Darija.
-
-## Sorties
-
-- `data/output/catalogue_sources_marocaines_ai.jsonl`
-- `data/output/catalogue_sources_marocaines_ai.csv`
-- `data/output/catalogue_sources_marocaines_ai.xlsx`
-
-Le classeur Excel contient les feuilles demandees : catalogue, priorites, liens a recontroler, hors perimetre, francais-Darija, tableau de bord et referentiel.
-
-## Detection de la Darija
-
-Le detecteur de Darija se trouve dans `src/analysis/darija_detector.py`. Il utilise un lexique pondere externalise dans `config/darija_lexicon.yaml`, afin que les mots, variantes et expressions puissent etre modifies sans toucher au code Python.
-
-Le detecteur applique plusieurs etapes :
-
-1. normalisation arabe : suppression des diacritiques, suppression du tatweel, normalisation de `أ`, `إ`, `آ`, `ٱ` vers `ا`, de `ى` vers `ي`, de `ؤ` vers `و`, et de `ئ` vers `ي` ;
-2. normalisation latine : minuscules, espaces propres, ponctuation non utile retiree, chiffres Arabizi conserves, repetitions excessives reduites ;
-3. detection de mots ponderes : niveaux `strong`, `medium`, `weak` ;
-4. detection d'expressions de deux a cinq mots ;
-5. detection Arabizi stricte : un token doit contenir au moins une lettre latine, au moins un chiffre Arabizi plausible, ne pas etre une annee, un nombre pur, une URL ou un identifiant technique ;
-6. detection du contexte marocain ;
-7. calcul de sous-scores : lexical, expressions, contexte marocain, Arabizi, densite et penalite d'ambiguite.
-
-Les seuils sont configurables dans `config/settings.yaml` :
-
-```yaml
-darija_detection:
-  keep_threshold: 65
-  review_threshold: 40
-  weak_signal_threshold: 20
-  minimum_strong_hits: 2
-  max_frequency_bonus: 15
-  max_context_bonus: 10
-  max_arabizi_bonus: 10
-```
-
-Pour ajouter un mot, modifier `config/darija_lexicon.yaml` dans la section appropriee :
-
-```yaml
-latin:
-  strong:
-    wach: 4.0
-```
-
-Pour ajouter une variante :
-
-```yaml
-variants:
-  diyal: dyal
-```
-
-Pour ajouter une variante arabe :
-
-```yaml
-arabic_variants:
-  أشنو: اشنو
-```
-
-Pour ajouter une expression :
-
-```yaml
-phrases:
-  latin:
-    "chno smitek": 7.0
-```
-
-Les mots faibles comme `salam`, `مرحبا` ou `chokran` ne suffisent pas seuls a classer un texte comme Darija avec confiance elevee. Les annees et tokens techniques comme `2024`, `Python3`, `HTML5`, `UTF8`, `HTTP2`, `sha256` ou `ipv4` ne sont pas consideres comme Arabizi.
-
-Un jeu de validation indicatif est disponible dans `data/validation/darija_detection_samples.csv`. Pour l'executer :
+Commande paramétrée :
 
 ```bash
-python scripts/evaluate_darija_detector.py
+uv run python -m src.main mvp --max-links 800 --min-darija-density 0.15
 ```
 
-Cette evaluation est indicative : les exemples sont courts et artificiels, donc elle sert surtout a detecter les regressions.
+Le flux exécuté est :
+
+```text
+Extraction -> Transformation/Analyse -> Chargement/Export
+```
+
+## Étape 1 : Extraction
+
+Le projet utilise Playwright pour ouvrir des pages dynamiques et extraire uniquement des URLs concrètes :
+
+- `https://www.youtube.com/watch?v=...`
+- `https://www.youtube.com/@Createur`
+- `https://facebook.com/[page]/posts/[id]`
+- `https://facebook.com/watch?v=[id]`
+- `https://facebook.com/reel/[id]`
+- `https://facebook.com/permalink.php?id=...&story_fbid=...`
+
+Les pages de recherche comme `youtube.com/results?search_query=...` ne sont pas conservées.
+
+Sortie intermédiaire :
+
+```text
+data/intermediate/candidates.jsonl
+```
+
+## Étape 2 : Transformation et analyse
+
+Le projet analyse les textes disponibles avec :
+
+```text
+src/analysis/darija_detector.py
+```
+
+Le détecteur :
+
+- charge `config/darija_lexicon.yaml` ;
+- normalise les écritures sociales ;
+- réduit les répétitions abusives comme `bzaaaaf` vers `bzaf` ;
+- détecte Darija arabe, Darija latine et Arabizi ;
+- calcule une densité Darija ;
+- filtre selon `--min-darija-density`.
+
+Sortie intermédiaire :
+
+```text
+data/intermediate/verified.jsonl
+```
+
+## Étape 3 : Export
+
+Sorties finales :
+
+```text
+data/output/catalogue_sources_marocaines_ai.xlsx
+data/output/catalogue_sources_marocaines_ai.csv
+data/output/catalogue_sources_marocaines_ai.jsonl
+```
+
+Le fichier Excel contient une colonne `Ouvrir` avec une formule `HYPERLINK`.
+
+## Commandes héritées
+
+Les commandes historiques restent disponibles :
+
+```bash
+uv run python -m src.main collect --max-links 200
+uv run python -m src.main verify --max-links 200
+uv run python -m src.main export
+uv run python -m src.main run-all --max-links 200
+uv run python -m src.main audit-links --input catalogue_sources_marocaines_ai.xlsx
+```
+
+## Tests
+
+Lancer la suite de tests :
+
+```bash
+uv run pytest -q
+```
+
+Les tests couvrent :
+
+- extraction YouTube stricte ;
+- extraction Facebook stricte ;
+- Google dorks ;
+- détection Darija ;
+- Arabizi ;
+- export Excel ;
+- audit URL ;
+- déduplication.
+
+## Périmètre linguistique
+
+Le français général n’est pas collecté. Une source en français est conservée uniquement si elle est utile pour :
+
+- traduction français-Darija ;
+- dictionnaire ou lexique ;
+- phrases parallèles ;
+- dialogues bilingues ;
+- culture marocaine ;
+- patrimoine marocain ;
+- données utiles à l’entraînement du modèle.
+
+## Notes de soutenance
+
+Le projet démontre :
+
+- un pipeline ETL clair ;
+- une extraction dynamique avec Playwright ;
+- un filtrage linguistique Darija ;
+- des exports structurés ;
+- une séparation propre entre configuration, discovery, analyse et storage ;
+- une base de tests automatisés.

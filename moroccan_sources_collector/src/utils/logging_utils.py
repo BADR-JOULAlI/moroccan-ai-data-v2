@@ -1,3 +1,5 @@
+"""Fonctions utilitaires partag?es par plusieurs ?tapes du pipeline."""
+
 from __future__ import annotations
 
 import json
@@ -7,6 +9,7 @@ from pathlib import Path
 
 
 def setup_logging(log_dir: Path) -> None:
+    """D?crit le fonctionnement de `setup_logging` et retourne le r?sultat attendu par le module."""
     log_dir.mkdir(parents=True, exist_ok=True)
     logging.basicConfig(
         level=logging.INFO,
@@ -20,6 +23,7 @@ def setup_logging(log_dir: Path) -> None:
 
 
 def log_error(log_dir: Path, url: str, stage: str, error: str) -> None:
+    """D?crit le fonctionnement de `log_error` et retourne le r?sultat attendu par le module."""
     log_dir.mkdir(parents=True, exist_ok=True)
     payload = {
         "timestamp": datetime.now(timezone.utc).isoformat(),

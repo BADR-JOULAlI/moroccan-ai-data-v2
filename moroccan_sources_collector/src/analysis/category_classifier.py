@@ -1,3 +1,5 @@
+"""Module d?analyse linguistique ou m?tier utilis? pendant la transformation des donn?es."""
+
 from __future__ import annotations
 
 RULES = [
@@ -21,6 +23,7 @@ RULES = [
 
 
 def classify_category(text: str, url: str = "", seed_category: str = "Autre") -> dict:
+    """D?crit le fonctionnement de `classify_category` et retourne le r?sultat attendu par le module."""
     haystack = f"{text} {url}".lower()
     for category, tokens in RULES:
         if any(token.lower() in haystack for token in tokens):

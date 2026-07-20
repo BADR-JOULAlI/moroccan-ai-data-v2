@@ -1,3 +1,5 @@
+"""Module de validation technique des URLs, contenus ou r?gles d?acc?s."""
+
 from __future__ import annotations
 
 import urllib.robotparser
@@ -7,6 +9,7 @@ from urllib.parse import urlparse
 
 @lru_cache(maxsize=512)
 def _parser(robots_url: str) -> urllib.robotparser.RobotFileParser:
+    """D?crit le fonctionnement de `_parser` et retourne le r?sultat attendu par le module."""
     parser = urllib.robotparser.RobotFileParser()
     parser.set_url(robots_url)
     try:
@@ -17,6 +20,7 @@ def _parser(robots_url: str) -> urllib.robotparser.RobotFileParser:
 
 
 def robots_status(url: str, user_agent: str = "*") -> str:
+    """D?crit le fonctionnement de `robots_status` et retourne le r?sultat attendu par le module."""
     parsed = urlparse(url)
     if not parsed.netloc:
         return "Inconnue"

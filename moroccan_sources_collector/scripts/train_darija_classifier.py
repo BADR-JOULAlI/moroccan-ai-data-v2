@@ -13,6 +13,7 @@ from __future__ import annotations
 
 
 def main() -> None:
+    """Point d?entr?e ex?cutable appel? par la ligne de commande."""
     print("Experimental only: no supervised model is trained by default.")
 
 

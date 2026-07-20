@@ -1,3 +1,5 @@
+"""Module de validation technique des URLs, contenus ou r?gles d?acc?s."""
+
 from __future__ import annotations
 
 import re
@@ -10,6 +12,7 @@ LICENSE_PATTERNS = [
 
 
 def detect_license(html: str, url: str = "") -> dict:
+    """D?tecte un signal linguistique, technique ou m?tier et retourne un r?sultat structur?."""
     soup = BeautifulSoup(html or "", "lxml")
     text = soup.get_text(" ", strip=True)
     license_url = ""

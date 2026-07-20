@@ -1,3 +1,5 @@
+"""Module d?audit technique des URLs et des fichiers Excel g?n?r?s."""
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -10,6 +12,7 @@ PREFERRED_SHEETS = ["Catalogue_liens", "Nouveaux_liens", "Sources", "Sheet1"]
 
 
 def resolve_excel_path(input_value: str, root: Path) -> Path:
+    """R?sout une valeur d?entr?e vers une ressource concr?te utilisable par le pipeline."""
     path = Path(input_value)
     candidates = [
         path,
@@ -24,10 +27,12 @@ def resolve_excel_path(input_value: str, root: Path) -> Path:
 
 
 def _normalize_header(value: Any) -> str:
+    """D?crit le fonctionnement de `_normalize_header` et retourne le r?sultat attendu par le module."""
     return str(value or "").strip().lower().replace(" ", "_")
 
 
 def _select_sheet(wb):
+    """D?crit le fonctionnement de `_select_sheet` et retourne le r?sultat attendu par le module."""
     for name in PREFERRED_SHEETS:
         if name in wb.sheetnames:
             return wb[name]
@@ -35,6 +40,7 @@ def _select_sheet(wb):
 
 
 def load_url_rows(path: Path) -> tuple[list[dict], str, str]:
+    """Charge des donn?es ou une configuration depuis le disque et retourne une structure exploitable."""
     wb = load_workbook(path, data_only=False, read_only=True)
     ws = _select_sheet(wb)
     rows = list(ws.iter_rows(values_only=True))

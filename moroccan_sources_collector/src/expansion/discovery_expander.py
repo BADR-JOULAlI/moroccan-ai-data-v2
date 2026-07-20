@@ -1,3 +1,5 @@
+"""Module historique d?expansion du catalogue ? partir de sources existantes."""
+
 from __future__ import annotations
 
 import logging
@@ -68,6 +70,7 @@ CURATED_BASES = [
 
 @dataclass
 class CandidateUrl:
+    """Classe m?tier utilis?e pour structurer le comportement ou les donn?es de CandidateUrl."""
     url: str
     source: str
     method: str
@@ -76,6 +79,7 @@ class CandidateUrl:
 
 
 def load_keywords(config_dir: Path, category: str | None = None) -> list[str]:
+    """Charge des donn?es ou une configuration depuis le disque et retourne une structure exploitable."""
     data = yaml.safe_load((config_dir / "keywords.yaml").read_text(encoding="utf-8")) or {}
     keywords = list(data.get("arabic", [])) + list(data.get("darija_latin_arabizi", []))
     extra = [
@@ -101,7 +105,9 @@ def load_keywords(config_dir: Path, category: str | None = None) -> list[str]:
 
 
 class ExpansionDiscoverer:
+    """Classe m?tier utilis?e pour structurer le comportement ou les donn?es de ExpansionDiscoverer."""
     def __init__(self, existing: ExistingCatalog, duplicate_detector: DuplicateDetector, config_dir: Path, settings: dict):
+        """D?crit le fonctionnement de `__init__` et retourne le r?sultat attendu par le module."""
         self.existing = existing
         self.duplicates = duplicate_detector
         self.config_dir = config_dir
@@ -110,6 +116,7 @@ class ExpansionDiscoverer:
         self.user_agent = settings.get("user_agent", "MoroccanSourcesCollector/0.1")
 
     def discover(self, target: int, max_links_per_domain: int, category: str | None = None) -> tuple[list[CandidateUrl], list[dict]]:
+        """D?crit le fonctionnement de `discover` et retourne le r?sultat attendu par le module."""
         candidates: list[CandidateUrl] = []
         rejected: list[dict] = []
         per_domain: Counter[str] = Counter()
@@ -146,6 +153,7 @@ class ExpansionDiscoverer:
         return candidates[:target], rejected
 
     def _initial_candidates(self, category: str | None) -> list[CandidateUrl]:
+        """D?crit le fonctionnement de `_initial_candidates` et retourne le r?sultat attendu par le module."""
         items: list[CandidateUrl] = []
         for query in load_keywords(self.config_dir, category):
             encoded = quote_plus(query)
@@ -168,6 +176,7 @@ class ExpansionDiscoverer:
         return items
 
     def _expand_url(self, url: str, parent: CandidateUrl) -> list[CandidateUrl]:
+        """D?crit le fonctionnement de `_expand_url` et retourne le r?sultat attendu par le module."""
         try:
             with httpx.Client(follow_redirects=True, timeout=self.timeout, headers={"User-Agent": self.user_agent}) as client:
                 response = client.get(url)
@@ -189,6 +198,7 @@ class ExpansionDiscoverer:
         return []
 
     def _parse_xml_links(self, body: str, final_url: str, parent: CandidateUrl) -> list[CandidateUrl]:
+        """D?crit le fonctionnement de `_parse_xml_links` et retourne le r?sultat attendu par le module."""
         try:
             root = ET.fromstring(body.encode("utf-8"))
         except ET.ParseError:
@@ -203,6 +213,7 @@ class ExpansionDiscoverer:
         return links[:200]
 
     def _is_relevant(self, url: str, anchor: str) -> bool:
+        """D?crit le fonctionnement de `_is_relevant` et retourne le r?sultat attendu par le module."""
         haystack = f"{url} {anchor}".lower()
         skip = [
             "login", "signin", "cart", "checkout", "privacy", "terms", "facebook.com/sharer",
@@ -218,6 +229,7 @@ class ExpansionDiscoverer:
         return any(token in haystack for token in keep)
 
     def _rejected(self, url: str, decision, item: CandidateUrl) -> dict:
+        """D?crit le fonctionnement de `_rejected` et retourne le r?sultat attendu par le module."""
         return {
             "URL_candidate": url,
             "URL_existante_correspondante": decision.duplicate_of,

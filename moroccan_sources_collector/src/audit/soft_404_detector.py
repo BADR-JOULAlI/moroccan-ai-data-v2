@@ -1,3 +1,5 @@
+"""Module d?audit technique des URLs et des fichiers Excel g?n?r?s."""
+
 from __future__ import annotations
 
 import re
@@ -34,6 +36,7 @@ BLOCKED_PATTERNS = [r"captcha", r"cloudflare", r"access denied", r"forbidden", r
 
 
 def _find(patterns: list[str], text: str) -> str:
+    """D?crit le fonctionnement de `_find` et retourne le r?sultat attendu par le module."""
     for pattern in patterns:
         if re.search(pattern, text, flags=re.I):
             return pattern
@@ -41,6 +44,7 @@ def _find(patterns: list[str], text: str) -> str:
 
 
 def detect_content_problem(title: str = "", text: str = "", html: str = "") -> dict:
+    """D?tecte un signal linguistique, technique ou m?tier et retourne un r?sultat structur?."""
     haystack = " ".join([title or "", text or "", html[:20000] or ""]).lower()
     zero = _find(ZERO_RESULT_PATTERNS, haystack)
     if zero:

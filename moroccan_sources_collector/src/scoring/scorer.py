@@ -1,7 +1,10 @@
+"""Module de calcul des scores de pertinence et de fiabilit?."""
+
 from __future__ import annotations
 
 
 def score_record(record: dict) -> dict:
+    """Attribue un score de pertinence ou de fiabilit? ? une ressource."""
     relevance = 0
     text = " ".join(str(record.get(k, "")) for k in ["URL_finale", "Description_source", "Categorie_principale", "Mots_cles_associes"]).lower()
     if any(token in text for token in ["maroc", "morocco", "moroccan", "المغرب", "darija", "دارجة"]):

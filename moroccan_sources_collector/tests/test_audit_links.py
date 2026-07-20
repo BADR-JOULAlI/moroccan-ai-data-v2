@@ -1,3 +1,5 @@
+"""Tests automatis?s qui documentent et prot?gent le comportement attendu du projet."""
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -16,6 +18,7 @@ from src.utils.url_utils import url_fingerprint
 
 
 def test_github_search_zero_result_is_rejected() -> None:
+    """V?rifie le comportement attendu d?une fonctionnalit? du projet."""
     html = "<html><title>Search</title><body>Your search did not match any repositories</body></html>"
     hint = validate_github("https://github.com/search?q=darija&type=repositories", "Search", html, html)
 
@@ -25,6 +28,7 @@ def test_github_search_zero_result_is_rejected() -> None:
 
 
 def test_url_auditor_decision_for_http_200_zero_result() -> None:
+    """V?rifie le comportement attendu d?une fonctionnalit? du projet."""
     auditor = UrlAuditor(Path("unused.json"), AuditConfig())
     check = {"status_http": 200, "status_lien": "Accessible"}
     problem = {"problem": "ZERO_RESULTAT", "message": "Your search did not match any repositories"}
@@ -36,10 +40,12 @@ def test_url_auditor_decision_for_http_200_zero_result() -> None:
 
 
 def test_github_concrete_repository_type() -> None:
+    """V?rifie le comportement attendu d?une fonctionnalit? du projet."""
     assert concrete_type_for_url("https://github.com/owner/repository") == "PAGE_REPOSITORY"
 
 
 def test_huggingface_search_and_dataset_detection() -> None:
+    """V?rifie le comportement attendu d?une fonctionnalit? du projet."""
     search_html = '<a href="/datasets/org/moroccan-darija">dataset</a>'
     hint = validate_huggingface("https://huggingface.co/datasets?search=darija", "", "", search_html)
 
@@ -50,6 +56,7 @@ def test_huggingface_search_and_dataset_detection() -> None:
 
 
 def test_zenodo_search_and_record_detection() -> None:
+    """V?rifie le comportement attendu d?une fonctionnalit? du projet."""
     search_html = '<a href="/records/123456">record</a>'
     hint = validate_zenodo("https://zenodo.org/search?q=darija", "", "", search_html)
 
@@ -60,17 +67,20 @@ def test_zenodo_search_and_record_detection() -> None:
 
 
 def test_soft_404_and_login_detection() -> None:
+    """V?rifie le comportement attendu d?une fonctionnalit? du projet."""
     assert detect_content_problem(text="Page not found")["problem"] == "SOFT_404"
     assert detect_content_problem(text="Sign in to continue")["problem"] == "PAGE_CONNEXION"
 
 
 def test_search_page_detection_for_platforms() -> None:
+    """V?rifie le comportement attendu d?une fonctionnalit? du projet."""
     assert is_search_page("https://github.com/search?q=darija&type=repositories")
     assert is_search_page("https://huggingface.co/datasets?search=darija")
     assert is_search_page("https://youtube.com/results?search_query=darija")
 
 
 def test_concrete_link_extraction_from_search_pages() -> None:
+    """V?rifie le comportement attendu d?une fonctionnalit? du projet."""
     github_html = '<a href="/open-darija/dataset">repo</a><a href="/topics/nlp">topic</a>'
     hf_html = '<a href="/datasets/org/darija-corpus">dataset</a>'
 
@@ -83,6 +93,7 @@ def test_concrete_link_extraction_from_search_pages() -> None:
 
 
 def test_url_fingerprint_deduplicates_tracking_and_www() -> None:
+    """V?rifie le comportement attendu d?une fonctionnalit? du projet."""
     first = url_fingerprint("http://www.example.ma/page/?utm_source=test#x")
     second = url_fingerprint("https://example.ma/page")
 
@@ -90,6 +101,7 @@ def test_url_fingerprint_deduplicates_tracking_and_www() -> None:
 
 
 def test_export_excel_sheets_and_hyperlink_formula(tmp_path: Path) -> None:
+    """V?rifie le comportement attendu d?une fonctionnalit? du projet."""
     records = [
         {
             "ID": 1,

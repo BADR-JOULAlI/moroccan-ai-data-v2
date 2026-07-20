@@ -1,3 +1,5 @@
+"""Module de validation technique des URLs, contenus ou r?gles d?acc?s."""
+
 from __future__ import annotations
 
 import ssl
@@ -10,6 +12,7 @@ from src.validation.content_type_checker import normalize_content_type
 
 @dataclass
 class UrlCheckResult:
+    """Classe m?tier utilis?e pour structurer le comportement ou les donn?es de UrlCheckResult."""
     final_url: str
     status_http: int | None
     status_lien: str
@@ -20,6 +23,7 @@ class UrlCheckResult:
 
 
 def _status_label(status: int | None, redirected: bool) -> str:
+    """D?crit le fonctionnement de `_status_label` et retourne le r?sultat attendu par le module."""
     if status is None:
         return "A_recontroler"
     if 200 <= status < 300:
@@ -34,6 +38,7 @@ def _status_label(status: int | None, redirected: bool) -> str:
 
 
 def check_url(url: str, timeout: float = 20, user_agent: str = "MoroccanSourcesCollector/0.1") -> UrlCheckResult:
+    """V?rifie l??tat ou la conformit? d?une ressource."""
     headers = {"User-Agent": user_agent}
     try:
         with httpx.Client(follow_redirects=True, timeout=timeout, headers=headers) as client:

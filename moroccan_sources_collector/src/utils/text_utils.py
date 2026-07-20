@@ -1,3 +1,5 @@
+"""Fonctions utilitaires partag?es par plusieurs ?tapes du pipeline."""
+
 from __future__ import annotations
 
 import re
@@ -12,10 +14,12 @@ TATWEEL = "\u0640"
 
 
 def clean_text(text: str) -> str:
+    """D?crit le fonctionnement de `clean_text` et retourne le r?sultat attendu par le module."""
     return SPACE_RE.sub(" ", unescape(text or "")).strip()
 
 
 def normalize_arabic_text(text: str) -> str:
+    """Normalise une valeur afin de rendre les comparaisons et d?duplications fiables."""
     value = unescape(text or "")
     value = ARABIC_DIACRITICS_RE.sub("", value)
     value = value.replace(TATWEEL, "")
@@ -34,11 +38,13 @@ def normalize_arabic_text(text: str) -> str:
 
 
 def normalize_latin_text(text: str) -> str:
+    """Normalise une valeur afin de rendre les comparaisons et d?duplications fiables."""
     value = unicodedata.normalize("NFKC", unescape(text or "")).lower()
     value = re.sub(r"https?://\S+|www\.\S+", " ", value)
     value = re.sub(r"[^a-z0-9'\s]", " ", value)
 
     def reduce_repeats(match: re.Match[str]) -> str:
+        """D?crit le fonctionnement de `reduce_repeats` et retourne le r?sultat attendu par le module."""
         char = match.group(1)
         return char * 2
 
@@ -49,6 +55,7 @@ def normalize_latin_text(text: str) -> str:
 
 
 def arabic_ratio(text: str) -> float:
+    """D?crit le fonctionnement de `arabic_ratio` et retourne le r?sultat attendu par le module."""
     letters = [ch for ch in text if ch.isalpha()]
     if not letters:
         return 0.0
@@ -56,6 +63,7 @@ def arabic_ratio(text: str) -> float:
 
 
 def latin_ratio(text: str) -> float:
+    """D?crit le fonctionnement de `latin_ratio` et retourne le r?sultat attendu par le module."""
     letters = [ch for ch in text if ch.isalpha()]
     if not letters:
         return 0.0
@@ -63,8 +71,10 @@ def latin_ratio(text: str) -> float:
 
 
 def has_arabic(text: str) -> bool:
+    """D?crit le fonctionnement de `has_arabic` et retourne le r?sultat attendu par le module."""
     return bool(ARABIC_RE.search(text or ""))
 
 
 def truncate(text: str, limit: int = 5000) -> str:
+    """D?crit le fonctionnement de `truncate` et retourne le r?sultat attendu par le module."""
     return clean_text(text)[:limit]

@@ -1,11 +1,15 @@
+"""Module de validation technique des URLs, contenus ou r?gles d?acc?s."""
+
 from __future__ import annotations
 
 
 def normalize_content_type(value: str | None) -> str:
+    """Normalise une valeur afin de rendre les comparaisons et d?duplications fiables."""
     return (value or "unknown").split(";")[0].strip().lower() or "unknown"
 
 
 def content_kind(content_type: str, url: str = "") -> str:
+    """D?crit le fonctionnement de `content_kind` et retourne le r?sultat attendu par le module."""
     ct = normalize_content_type(content_type)
     lower = url.lower()
     if "html" in ct:

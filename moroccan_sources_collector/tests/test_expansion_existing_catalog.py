@@ -1,3 +1,5 @@
+"""Tests automatis?s qui documentent et prot?gent le comportement attendu du projet."""
+
 from pathlib import Path
 
 from openpyxl import Workbook, load_workbook
@@ -7,6 +9,7 @@ from src.storage.expansion_excel_exporter import EXPANDED_COLUMNS, export_expand
 
 
 def test_load_existing_catalog_extracts_urls(tmp_path: Path):
+    """V?rifie le comportement attendu d?une fonctionnalit? du projet."""
     path = tmp_path / "catalogue.xlsx"
     wb = Workbook()
     ws = wb.active
@@ -21,6 +24,7 @@ def test_load_existing_catalog_extracts_urls(tmp_path: Path):
 
 
 def test_expanded_excel_keeps_initial_and_new_rows(tmp_path: Path):
+    """V?rifie le comportement attendu d?une fonctionnalit? du projet."""
     old = {column: "" for column in EXPANDED_COLUMNS}
     old.update({"ID": 1, "URL_finale": "https://example.com/old", "Est_nouveau": "Non", "Domaine": "example.com"})
     new = {column: "" for column in EXPANDED_COLUMNS}

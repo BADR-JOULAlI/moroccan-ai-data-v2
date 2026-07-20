@@ -1,3 +1,5 @@
+"""Module d?analyse linguistique ou m?tier utilis? pendant la transformation des donn?es."""
+
 from __future__ import annotations
 
 import re
@@ -11,16 +13,19 @@ PAIR_SEP_RE = re.compile(r"(.{2,80}?)(?:\||:|=>|-{2,})(.{2,100})")
 
 
 def _looks_french(text: str) -> bool:
+    """D?crit le fonctionnement de `_looks_french` et retourne le r?sultat attendu par le module."""
     words = set(re.findall(r"[A-Za-zÀ-ÿ]+", text.lower()))
     return bool(words & FRENCH_HINTS) or any(ch in text.lower() for ch in "éèàùç")
 
 
 def _looks_darija(text: str) -> bool:
+    """D?crit le fonctionnement de `_looks_darija` et retourne le r?sultat attendu par le module."""
     result = detect_darija(text)
     return result["Score_darija"] > 0 or bool(set(re.findall(r"\w+", text.lower())) & DARija_LATIN_WORDS)
 
 
 def detect_parallel_text(html: str, text: str) -> dict:
+    """D?tecte un signal linguistique, technique ou m?tier et retourne un r?sultat structur?."""
     examples: list[str] = []
     alignment = "non_aligne"
     soup = BeautifulSoup(html or "", "lxml")

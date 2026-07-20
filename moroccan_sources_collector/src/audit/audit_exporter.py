@@ -1,3 +1,5 @@
+"""Module d?audit technique des URLs et des fichiers Excel g?n?r?s."""
+
 from __future__ import annotations
 
 from collections import Counter
@@ -19,6 +21,7 @@ AUDIT_COLUMNS = [
 
 
 def _format(ws, name: str) -> None:
+    """D?crit le fonctionnement de `_format` et retourne le r?sultat attendu par le module."""
     fill = PatternFill("solid", fgColor="1F4E78")
     for cell in ws[1]:
         cell.font = Font(color="FFFFFF", bold=True)
@@ -51,6 +54,7 @@ def _format(ws, name: str) -> None:
 
 
 def _write(wb: Workbook, title: str, records: list[dict], columns: list[str] = AUDIT_COLUMNS) -> None:
+    """D?crit le fonctionnement de `_write` et retourne le r?sultat attendu par le module."""
     ws = wb.create_sheet(title)
     ws.append(columns)
     for record in records:
@@ -60,6 +64,7 @@ def _write(wb: Workbook, title: str, records: list[dict], columns: list[str] = A
 
 
 def _dashboard(wb: Workbook, records: list[dict]) -> None:
+    """D?crit le fonctionnement de `_dashboard` et retourne le r?sultat attendu par le module."""
     ws = wb.create_sheet("Tableau_de_bord")
     ws.append(["Indicateur", "Valeur"])
     metrics = [
@@ -93,6 +98,7 @@ def _dashboard(wb: Workbook, records: list[dict]) -> None:
 
 
 def export_audit_excel(records: list[dict], duplicates: list[dict], output_path: Path, total_loaded: int) -> None:
+    """?crit les donn?es transform?es dans un format de sortie exploitable."""
     wb = Workbook()
     wb.remove(wb.active)
     valid = [r for r in records if r["Decision_finale"] == "CONSERVER"]

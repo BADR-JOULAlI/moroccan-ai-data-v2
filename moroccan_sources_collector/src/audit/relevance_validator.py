@@ -1,3 +1,5 @@
+"""Module d?audit technique des URLs et des fichiers Excel g?n?r?s."""
+
 from __future__ import annotations
 
 import re
@@ -10,12 +12,14 @@ FR_DARIJA = ["français darija", "francais darija", "dictionnaire français dari
 
 
 def _score_terms(text: str, terms: list[str], weight: int) -> int:
+    """D?crit le fonctionnement de `_score_terms` et retourne le r?sultat attendu par le module."""
     lower = text.lower()
     hits = sum(1 for term in terms if term.lower() in lower)
     return min(100, hits * weight)
 
 
 def relevance_scores(title: str, description: str, text: str, url: str = "") -> dict:
+    """D?crit le fonctionnement de `relevance_scores` et retourne le r?sultat attendu par le module."""
     combined = " ".join([title or "", description or "", text or "", url or ""])
     darija = detect_darija(combined[:8000])
     darija_score = int(darija.get("Score_darija") or 0)
@@ -33,6 +37,7 @@ def relevance_scores(title: str, description: str, text: str, url: str = "") -> 
 
 
 def is_relevant_resource(scores: dict, type_url: str) -> bool:
+    """Retourne un bool?en indiquant si la valeur respecte une condition pr?cise."""
     if type_url in {"PAGE_DATASET", "PAGE_REPOSITORY", "PAGE_PUBLICATION"} and scores["Score_pertinence"] >= 30:
         return True
     return scores["Score_pertinence"] >= 50

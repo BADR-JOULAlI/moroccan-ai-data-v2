@@ -1,3 +1,5 @@
+"""Module Python document? du projet moroccan_sources_collector."""
+
 from __future__ import annotations
 
 import csv
@@ -17,6 +19,7 @@ SAMPLES = ROOT / "data" / "validation" / "darija_detection_samples.csv"
 
 
 def _compatible(expected: str, predicted: str) -> bool:
+    """D?crit le fonctionnement de `_compatible` et retourne le r?sultat attendu par le module."""
     if expected == predicted:
         return True
     if expected == "indeterminee" and predicted in {"indeterminee", "arabe_standard_probable"}:
@@ -25,6 +28,7 @@ def _compatible(expected: str, predicted: str) -> bool:
 
 
 def main() -> None:
+    """Point d?entr?e ex?cutable appel? par la ligne de commande."""
     rows = list(csv.DictReader(SAMPLES.open(encoding="utf-8")))
     confusion: dict[str, Counter[str]] = defaultdict(Counter)
     by_class: dict[str, list[bool]] = defaultdict(list)
