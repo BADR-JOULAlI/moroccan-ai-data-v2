@@ -6,8 +6,8 @@ from __future__ import annotations
 
 The recommended MVP path is intentionally linear and easy to present:
 
-1. Extraction: Playwright discovers concrete YouTube/Facebook URLs from YAML seeds.
-2. Transformation: Darija density filtering keeps only relevant social sources.
+1. Extraction: the catalogue crawler discovers regular website URLs from YAML seeds.
+2. Verification: HTTP, robots, content and relevance signals are checked.
 3. Load: Excel, CSV and JSONL artefacts are written under ``data/output``.
 
 For the jury/demo, the project can be launched with:
@@ -110,19 +110,31 @@ Explicit command:
   uv run python -m src.main mvp --max-links 800 --min-darija-density 0.15
 """
 
-SOCIAL_DISCOVERY_METHODS = {
-    "youtube_search",
-    "youtube_keyword",
-    "youtube_channel",
-    "youtube_videos",
-    "youtube_shorts",
+SOCIAL_DISCOVERY_METHODS: set[str] = set()
+
+STATIC_BACKGROUND_PLATFORMS: set[str] = set()
+
+EXCLUDED_WEB_PLATFORMS = {
+    "facebook.com",
+    "fb.com",
+    "github.com",
+    "huggingface.co",
+    "kaggle.com",
+    "youtu.be",
+    "youtube.com",
+}
+
+EXCLUDED_DISCOVERY_METHODS = {
+    "facebook_dork",
     "facebook_page",
     "facebook_public_page",
     "google_facebook_dork",
-    "facebook_dork",
+    "youtube_channel",
+    "youtube_keyword",
+    "youtube_search",
+    "youtube_shorts",
+    "youtube_videos",
 }
-
-STATIC_BACKGROUND_PLATFORMS = {"Kaggle", "GitHub"}
 
 
 def _review_record(record: dict) -> dict:
@@ -212,6 +224,23 @@ def _social_seeds(seeds: list[dict]) -> list[dict]:
     # MVP scope: keep only dynamic social sources that can feed the demo quickly.
     """Filtre les seeds pour garder uniquement les methodes de decouverte sociales."""
     return [seed for seed in seeds if str(seed.get("discovery_method", "")).lower() in SOCIAL_DISCOVERY_METHODS]
+
+
+def _is_regular_website_seed(seed: dict) -> bool:
+    """Keep only regular website seeds, excluding social and code/dataset platforms."""
+    method = str(seed.get("discovery_method", "")).lower()
+    if method in EXCLUDED_DISCOVERY_METHODS:
+        return False
+    url = str(seed.get("url", ""))
+    if not url:
+        return False
+    domain = get_domain(url).lower().removeprefix("www.")
+    return not any(domain == excluded or domain.endswith(f".{excluded}") for excluded in EXCLUDED_WEB_PLATFORMS)
+
+
+def _regular_website_seeds(seeds: list[dict]) -> list[dict]:
+    """Filter seed sources to regular websites only."""
+    return [seed for seed in seeds if _is_regular_website_seed(seed)]
 
 
 def _seed_platform(seed: dict) -> str:
@@ -442,7 +471,7 @@ async def mvp_extract_async(seeds: list[dict], settings: dict, max_links: int) -
 
 
 def mvp_extract(args: argparse.Namespace) -> list[dict]:
-    """Run the Extraction step and persist raw candidates line by line.
+    """Run website-only extraction and persist raw candidates line by line.
 
     Inputs:
         args.max_links controls the global extraction target.
@@ -450,19 +479,7 @@ def mvp_extract(args: argparse.Namespace) -> list[dict]:
     Output:
         Raw candidate dictionaries saved to data/intermediate/candidates.jsonl.
     """
-    settings = load_yaml(CONFIG / "settings.yaml")
-    seeds = load_seed_sources(CONFIG / "seed_sources.yaml")
-    social_count = len(_social_seeds(seeds))
-    static_count = len(_static_background_seeds(seeds))
-    LOGGER.info(
-        "[ETL - Extraction] Demarrage MVP avec %s seeds sociaux et %s seeds statiques",
-        social_count,
-        static_count,
-    )
-    records = asyncio.run(mvp_extract_async(seeds, settings, int(args.max_links)))
-    export_jsonl(records, CANDIDATES_PATH)
-    LOGGER.info("[ETL - Extraction] %s liens bruts sauvegardes dans %s", len(records), CANDIDATES_PATH)
-    return records
+    return collect(args)
 
 
 def mvp_transform(args: argparse.Namespace) -> list[dict]:
@@ -584,7 +601,7 @@ def mvp_load(args: argparse.Namespace) -> list[dict]:
 
 
 def run_mvp_etl(args: argparse.Namespace) -> dict:
-    """Execute the MVP ETL linearly: Extraction -> Transformation -> Load.
+    """Execute the website-only ETL linearly: Extraction -> Verification -> Export.
 
     Inputs:
         CLI args from `uv run python -m src.main`.
@@ -592,12 +609,12 @@ def run_mvp_etl(args: argparse.Namespace) -> dict:
     Output:
         A summary dictionary printed in the terminal for the jury/demo.
     """
-    LOGGER.info("[MVP] Pipeline lance via uv-compatible entrypoint")
+    LOGGER.info("[MVP] Pipeline web lance via uv-compatible entrypoint")
     candidates = mvp_extract(args)
-    validated = mvp_transform(args)
-    records = mvp_load(args)
+    validated = verify(args)
+    records = export_outputs(args)
     return {
-        "mode": "mvp_social_etl",
+        "mode": "mvp_websites_only_etl",
         "raw_candidates": len(candidates),
         "validated_records": len(validated),
         "exported_records": len(records),
@@ -640,7 +657,9 @@ def candidate_from_dict(data: dict) -> LinkCandidate:
 def collect(args: argparse.Namespace) -> list[dict]:
     """Execute le crawler historique et sauvegarde les candidats bruts dans candidates.jsonl."""
     settings = load_yaml(CONFIG / "settings.yaml")
-    seeds = load_seed_sources(CONFIG / "seed_sources.yaml", getattr(args, "category", None))
+    loaded_seeds = load_seed_sources(CONFIG / "seed_sources.yaml", getattr(args, "category", None))
+    seeds = _regular_website_seeds(loaded_seeds)
+    LOGGER.info("Website-only mode: kept %s/%s seeds", len(seeds), len(loaded_seeds))
     crawler = CatalogCrawler(settings, LOGS)
     candidates = crawler.crawl(seeds, max_links=getattr(args, "max_links", None))
     records = [candidate_to_dict(candidate) for candidate in candidates]
@@ -1045,10 +1064,10 @@ def build_parser() -> argparse.ArgumentParser:
         epilog=MVP_UV_USAGE,
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    parser.add_argument("--max-links", type=int, default=800, help="MVP target for raw YouTube/Facebook candidates.")
+    parser.add_argument("--max-links", type=int, default=800, help="MVP target for regular website candidates.")
     parser.add_argument("--min-darija-density", type=float, default=0.15, help="Minimum Darija density required after transformation.")
     sub = parser.add_subparsers(dest="command", required=False)
-    mvp_cmd = sub.add_parser("mvp", help="Run the uv-compatible MVP ETL: Extraction -> Transformation -> Load.")
+    mvp_cmd = sub.add_parser("mvp", help="Run the website-only MVP ETL: Extraction -> Verification -> Export.")
     mvp_cmd.add_argument("--max-links", type=int, default=800)
     mvp_cmd.add_argument("--min-darija-density", type=float, default=0.15)
     for name in ["collect", "verify", "export", "run-all"]:

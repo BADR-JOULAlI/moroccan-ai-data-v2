@@ -2,6 +2,8 @@
 
 Ce depot regroupe un pipeline complet pour construire un jeu de donnees web utile aux projets IA lies au contexte marocain : Darija, arabe marocain, Arabizi, contenus bilingues francais-Darija, culture et patrimoine marocain.
 
+Le mode principal travaille uniquement avec des sites web classiques. Les plateformes YouTube, Facebook, Kaggle, HuggingFace et GitHub sont exclues du flux de collecte/crawl.
+
 L'objectif n'est pas seulement de collecter beaucoup de liens. Le projet met en place une chaine controlee :
 
 ```text
@@ -41,12 +43,12 @@ Chemin :
 moroccan_sources_collector/
 ```
 
-Ce module sert a decouvrir, analyser, filtrer et exporter des sources marocaines candidates.
+Ce module sert a decouvrir, analyser, filtrer et exporter des sites web marocains ou lies au Maroc.
 
 Il fait notamment :
 
 - chargement des seeds depuis `config/seed_sources.yaml` ;
-- exploration de catalogues, pages web et sources sociales ;
+- exploration de catalogues et pages web ;
 - normalisation des URLs ;
 - deduplication ;
 - verification HTTP ;
@@ -198,10 +200,12 @@ Equivalent explicite :
 uv run python -m src.main mvp --max-links 800 --min-darija-density 0.15
 ```
 
+Ce flux execute uniquement les seeds de type site web. Les seeds YouTube, Facebook, Kaggle, HuggingFace et GitHub sont ignorees.
+
 Ce flux execute :
 
 ```text
-Extraction -> Transformation -> Export
+Extraction -> Verification -> Export
 ```
 
 ### Commandes separees

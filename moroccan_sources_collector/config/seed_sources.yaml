@@ -1,60 +1,4 @@
 sources:
-  - name: YouTube Darija podcasts
-    query: darija podcast
-    category: Audio_video
-    priority: P0
-    expected_language: darija/ar/fr
-    discovery_method: youtube_search
-    max_results: 50
-    use_playwright: true
-  - name: YouTube Moroccan Arabic interviews
-    query: moroccan arabic interview darija
-    category: Audio_video
-    priority: P0
-    expected_language: darija/ar
-    discovery_method: youtube_search
-    max_results: 50
-    use_playwright: true
-  - name: YouTube histoire du Maroc
-    query: histoire du maroc documentaire
-    category: Histoire
-    priority: P0
-    expected_language: ar/fr/darija
-    discovery_method: youtube_search
-    max_results: 50
-    use_playwright: true
-  - name: YouTube documentaire marocain
-    query: documentaire marocain culture patrimoine
-    category: Patrimoine_immateriel
-    priority: P0
-    expected_language: ar/fr/darija
-    discovery_method: youtube_search
-    max_results: 50
-    use_playwright: true
-  - name: YouTube traditions marocaines
-    query: traditions marocaines darija
-    category: Traditions
-    priority: P0
-    expected_language: darija/ar/fr
-    discovery_method: youtube_search
-    max_results: 50
-    use_playwright: true
-  - name: Facebook dork Darija
-    query: darija maroc culture
-    category: Culture_marocaine
-    priority: P1
-    expected_language: darija/ar/fr
-    discovery_method: google_facebook_dork
-    max_results: 50
-    use_playwright: true
-  - name: Facebook dork patrimoine marocain
-    query: patrimoine marocain traditions marocaines
-    category: Patrimoine_immateriel
-    priority: P1
-    expected_language: ar/fr/darija
-    discovery_method: google_facebook_dork
-    max_results: 50
-    use_playwright: true
   - name: Portail Open Data du Maroc
     url: https://www.data.gov.ma/
     category: Dataset_IA
@@ -119,22 +63,6 @@ sources:
     discovery_method: catalog
     max_pages: 5
     use_playwright: false
-  - name: Hugging Face Darija search
-    url: https://huggingface.co/datasets?search=darija
-    category: Dataset_IA
-    priority: P0
-    expected_language: en
-    discovery_method: catalog
-    max_pages: 8
-    use_playwright: true
-  - name: Kaggle Moroccan Arabic search
-    url: https://www.kaggle.com/search?q=moroccan+arabic+dataset
-    category: Dataset_IA
-    priority: P1
-    expected_language: en
-    discovery_method: catalog
-    max_pages: 5
-    use_playwright: true
   - name: Zenodo Darija search
     url: https://zenodo.org/search?q=darija
     category: Dataset_IA
@@ -143,14 +71,6 @@ sources:
     discovery_method: catalog
     max_pages: 8
     use_playwright: false
-  - name: GitHub Darija search
-    url: https://github.com/search?q=darija+dataset&type=repositories
-    category: Dataset_IA
-    priority: P0
-    expected_language: en
-    discovery_method: catalog
-    max_pages: 8
-    use_playwright: true
   - name: arXiv Moroccan Arabic
     url: https://arxiv.org/search/?query=moroccan+arabic&searchtype=all
     category: Publication_scientifique
