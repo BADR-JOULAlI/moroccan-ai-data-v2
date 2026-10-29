@@ -8,16 +8,16 @@ import xml.etree.ElementTree as ET
 from collections import Counter, defaultdict, deque
 from dataclasses import dataclass
 from pathlib import Path
-from urllib.parse import quote_plus, urlparse
+from urllib.parse import quote_plus, urljoin, urlparse
 
-import httpx
 import yaml
 
 from src.discovery.link_extractor import extract_links
 from src.expansion.duplicate_detector import DuplicateDetector
 from src.expansion.existing_catalog import ExistingCatalog
 from src.utils.url_utils import get_domain, get_registered_domain, normalize_url
-from src.validation.robots_checker import robots_status
+from src.validation.url_checker import check_url
+from src.validation.url_policy import is_regular_website_url
 
 LOGGER = logging.getLogger(__name__)
 
@@ -127,7 +127,11 @@ class ExpansionDiscoverer:
 
         while queue and len(candidates) < target and requests < max_requests:
             item = queue.popleft()
+            if not is_regular_website_url(item.url):
+                continue
             url = normalize_url(item.url)
+            if not is_regular_website_url(url):
+                continue
             if url in seen:
                 continue
             seen.add(url)
@@ -144,8 +148,10 @@ class ExpansionDiscoverer:
                 continue
             requests += 1
             for child in self._expand_url(url, item):
+                if not is_regular_website_url(child.url):
+                    continue
                 child_url = normalize_url(child.url)
-                if child_url not in seen and len(candidates) + len(queue) < target * 4:
+                if is_regular_website_url(child_url) and child_url not in seen and len(candidates) + len(queue) < target * 4:
                     queue.append(child)
             if requests % 25 == 0:
                 LOGGER.info("Expansion discovery: %s candidates, %s duplicates", len(candidates), len(rejected))
@@ -155,36 +161,56 @@ class ExpansionDiscoverer:
     def _initial_candidates(self, category: str | None) -> list[CandidateUrl]:
         """D?crit le fonctionnement de `_initial_candidates` et retourne le r?sultat attendu par le module."""
         items: list[CandidateUrl] = []
+
+        def add(url: str, source: str, method: str, query: str = "") -> None:
+            if is_regular_website_url(url):
+                items.append(CandidateUrl(url, source, method, query))
+
         for query in load_keywords(self.config_dir, category):
             encoded = quote_plus(query)
             for pattern in TECHNICAL_DOMAINS:
                 url = pattern.format(q=encoded)
-                items.append(CandidateUrl(url, get_domain(url), "platform_search", query))
+                if is_regular_website_url(url):
+                    add(url, get_domain(url), "platform_search", query)
         for base in CURATED_BASES:
-            items.append(CandidateUrl(base, get_domain(base), "curated_domain"))
+            if not is_regular_website_url(base):
+                continue
+            add(base, get_domain(base), "curated_domain")
             parsed = urlparse(base)
             root = f"{parsed.scheme}://{parsed.netloc}"
             for path in FAST_PATHS:
-                items.append(CandidateUrl(root + path, get_domain(base), "curated_common_path"))
+                add(root + path, get_domain(base), "curated_common_path")
         for domain in sorted(self.existing.domains):
             if not domain:
                 continue
             base = f"https://{domain}"
-            items.append(CandidateUrl(base, domain, "existing_domain"))
+            if not is_regular_website_url(base):
+                continue
+            add(base, domain, "existing_domain")
             for path in FAST_PATHS:
-                items.append(CandidateUrl(base + path, domain, "domain_common_path"))
+                add(base + path, domain, "domain_common_path")
         return items
 
     def _expand_url(self, url: str, parent: CandidateUrl) -> list[CandidateUrl]:
-        """D?crit le fonctionnement de `_expand_url` et retourne le r?sultat attendu par le module."""
+        """Expand permitted website content through the shared robots-aware checker."""
+        if not is_regular_website_url(url):
+            return []
         try:
-            with httpx.Client(follow_redirects=True, timeout=self.timeout, headers={"User-Agent": self.user_agent}) as client:
-                response = client.get(url)
+            response = check_url(
+                url, timeout=self.timeout, user_agent=self.user_agent,
+                url_policy=is_regular_website_url,
+            )
         except Exception:
             return []
-        content_type = response.headers.get("content-type", "").lower()
-        body = response.text[:500000]
-        final_url = str(response.url)
+        if (
+            response.status_lien not in {"Accessible", "Accessible_avec_redirection"}
+            or response.robots_txt != "Oui"
+            or not is_regular_website_url(response.final_url)
+        ):
+            return []
+        content_type = response.content_type.lower()
+        body = response.html or ""
+        final_url = response.final_url
         if "xml" in content_type or body.lstrip().startswith("<?xml") or "<urlset" in body or "<sitemapindex" in body:
             return self._parse_xml_links(body, final_url, parent)
         if "rss" in content_type or "atom" in content_type or "<rss" in body[:200].lower() or "<feed" in body[:200].lower():
@@ -192,7 +218,7 @@ class ExpansionDiscoverer:
         if "html" in content_type:
             children = []
             for link, anchor in extract_links(body, final_url):
-                if self._is_relevant(link, anchor):
+                if is_regular_website_url(link) and self._is_relevant(link, anchor):
                     children.append(CandidateUrl(link, parent.source, "page_link", parent.query, parent.depth + 1))
             return children[:100]
         return []
@@ -205,15 +231,24 @@ class ExpansionDiscoverer:
             return []
         links = []
         for elem in root.iter():
+            link = ""
+            method = "rss"
             if elem.tag.lower().endswith("loc") and elem.text:
                 method = "sitemap" if "sitemap" in final_url else "rss"
-                links.append(CandidateUrl(elem.text.strip(), parent.source, method, parent.query, parent.depth + 1))
-            elif elem.tag.lower().endswith("link") and elem.text and elem.text.strip().startswith("http"):
-                links.append(CandidateUrl(elem.text.strip(), parent.source, "rss", parent.query, parent.depth + 1))
+                link = elem.text.strip()
+            elif elem.tag.lower().endswith("link"):
+                link = (elem.get("href") or elem.text or "").strip()
+            if not link:
+                continue
+            link = urljoin(final_url, link)
+            if is_regular_website_url(link):
+                links.append(CandidateUrl(normalize_url(link), parent.source, method, parent.query, parent.depth + 1))
         return links[:200]
 
     def _is_relevant(self, url: str, anchor: str) -> bool:
         """D?crit le fonctionnement de `_is_relevant` et retourne le r?sultat attendu par le module."""
+        if not is_regular_website_url(url):
+            return False
         haystack = f"{url} {anchor}".lower()
         skip = [
             "login", "signin", "cart", "checkout", "privacy", "terms", "facebook.com/sharer",

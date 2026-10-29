@@ -202,6 +202,24 @@ uv run python -m src.main mvp --max-links 800 --min-darija-density 0.15
 
 Ce flux execute uniquement les seeds de type site web. Les seeds YouTube, Facebook, Kaggle, HuggingFace et GitHub sont ignorees.
 
+La meme politique s'applique aux liens enfants, aux destinations des redirections,
+a l'expansion du catalogue et a l'export vers le crawler. Les requetes du
+collecteur consultent `robots.txt` avant de demander le contenu. Une interdiction
+ou des regles momentanement indisponibles suspendent la collecte de cette URL;
+une erreur reseau n'est pas presentee comme une interdiction definitive.
+
+`--min-darija-density` agit sur le texte du corps de la page, sans utiliser le
+titre ou le nom de la source pour relever sa densite. L'arabe standard, le
+contenu parallele francais-Darija confirme et la culture marocaine attestee dans
+le texte restent des exceptions. Les PDF sans texte extrait restent disponibles
+pour revue humaine et extraction ulterieure. La valeur `0` desactive seulement
+ce filtre linguistique.
+
+Les candidats bloques sont traces dans `data/intermediate/blocked_candidates.jsonl`.
+Les pages sous le seuil sont conservees dans `data/intermediate/rejected_linguistic.jsonl`,
+avec leur densite et motif, sans alimenter le catalogue actif. Une selection vide
+est exportee telle quelle, sans relancer automatiquement la collecte.
+
 Ce flux execute :
 
 ```text
@@ -276,6 +294,12 @@ moroccan_sources_collector/data/output/crawl_manifest.jsonl
 ```
 
 `crawler_urls.txt` contient uniquement les URLs acceptees manuellement.
+
+L'export exige aussi une URL HTTP(S) absolue dans le perimetre des sites web
+et un statut `Robots_txt` egal a `Oui` dans le fichier de revue. Une decision
+`accept` ne permet pas de contourner ces controles. Le resume d'export donne
+le nombre de liens retenus, ecartes et leurs motifs. Si les robots etaient
+indisponibles, relancer la verification avant de valider le lien.
 
 ## Lancement du crawler
 
@@ -457,6 +481,12 @@ avoir ete telechargees.
 
 Voir [le suivi de fiabilisation](RELIABILITY.md) pour le perimetre des corrections
 et les points qui restent a traiter avant un traitement complet.
+
+Le mode navigateur du collecteur applique aussi les controles URL/robots aux
+requetes et resout les redirections HTTP avant navigation. Une redirection qui
+apparait seulement pendant le rendu est refusee et journalisee, meme si sa
+destination serait autorisee. Les tests de cette protection utilisent des
+routes simulees; ils ne remplacent pas un essai avec Chromium.
 
 ## Perimetre linguistique V1
 

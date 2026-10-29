@@ -39,16 +39,37 @@ libmagic. Les tests de crawl utilisent un faux Wget, jamais le reseau.
 
 Ces tests ne valident pas un traitement complet avec les modeles PDF/OCR.
 
-## Prochain lot
+## Deuxieme lot : regles de collecte
 
-- Appliquer le perimetre « sites web seulement » aux liens enfants,
-  redirections et exports, en plus des sources initiales.
-- Consulter robots.txt avant toute requete de contenu et distinguer refus,
-  indisponibilite et erreur reseau.
-- Rejeter les URL invalides lors de l'export vers le crawler.
-- Relier le seuil `--min-darija-density` au parcours effectivement execute.
+- Une politique partagee valide les URL et exclut les plateformes aux etapes
+  de decouverte, expansion, redirection et export du collecteur.
+- Les regles robots sont consultees avant chaque requete de contenu HTTP. Leurs
+  propres redirections sont aussi controlees. Les politiques certaines ont un
+  cache d'une heure limite a 512 entrees; les erreurs temporaires ne sont pas
+  figees comme des interdictions.
+- Le navigateur du collecteur applique les controles URL/robots aux requetes,
+  bloque les service workers et resout les redirections HTTP avant navigation.
+  Une nouvelle redirection pendant le rendu est refusee et journalisee. Ce
+  choix conservateur peut laisser certaines pages dynamiques inaccessibles.
+- La verification ignore les anciens caches crees avant ces controles et
+  revalide les permissions avant d'utiliser les nouvelles entrees.
+- L'export exige une decision humaine positive, une URL HTTP(S) valide du
+  perimetre et un statut robots connu comme autorise. Les refus sont comptes
+  et expliques dans le resume de la commande.
+- Le seuil Darija utilise le texte du corps HTML, sans les metadonnees du head.
+  Les exceptions et les PDF a revoir sont explicites. Les rejets linguistiques
+  restent dans un fichier distinct pour ne pas perdre les candidats.
+- Une selection vide ne declenche plus une deuxieme verification/collecte.
+- L'audit historique de plateformes garde un perimetre de diagnostic explicite;
+  ses statuts robots ne peuvent plus etre classes comme des ressources validees.
+
+Les tests sont hors reseau. Les tests du navigateur simulent les routes et les
+pages; ils ne valident pas un navigateur Chromium reel. Le controle des requetes
+du collecteur ne remplace pas la validation de bout en bout du crawl Wget.
+
+## Travaux restants
 
 La preparation des modeles, la configuration du serveur OCR, les positions des
 enregistrements WARC et la protection des delais d'extraction necessitent encore
-un lot ulterieur. La documentation historique du collecteur reste egalement a
-aligner avec le mode web actuel.
+un lot ulterieur. Un essai complet sur des donnees locales fixes doit ensuite
+valider l'enchainement catalogue, WARC et extraction, avant un crawl reel.

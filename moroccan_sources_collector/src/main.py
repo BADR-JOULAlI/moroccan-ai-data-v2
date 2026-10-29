@@ -15,7 +15,7 @@ For the jury/demo, the project can be launched with:
 ``uv run python -m src.main``
 
 Legacy commands are kept for advanced runs and audit experiments, but the default
-entrypoint executes the social ETL MVP.
+entrypoint executes the website ETL MVP.
 """
 
 import argparse
@@ -23,6 +23,7 @@ import asyncio
 import csv
 import json
 import logging
+import math
 from collections import Counter, defaultdict
 from datetime import datetime, timezone
 from pathlib import Path
@@ -36,6 +37,7 @@ from src.audit.audit_exporter import export_audit_excel
 from src.audit.excel_loader import load_url_rows, resolve_excel_path
 from src.audit.url_auditor import AuditConfig, UrlAuditor
 from src.analysis.darija_detector import calculate_darija_score
+from src.analysis.collection_policy import apply_darija_threshold
 from src.analysis.page_analyzer import analyze_page
 from src.discovery.catalog_crawler import CatalogCrawler
 from src.discovery.seed_loader import load_seed_sources
@@ -55,6 +57,10 @@ from src.utils.url_utils import LinkCandidate, get_domain, normalize_url, text_f
 from src.validation.content_type_checker import content_kind
 from src.validation.robots_checker import robots_status
 from src.validation.url_checker import check_url
+from src.validation.url_policy import (
+    EXCLUDED_DISCOVERY_METHODS,
+    is_regular_website_url,
+)
 
 ROOT = Path(__file__).resolve().parents[1]
 CONFIG = ROOT / "config"
@@ -64,6 +70,8 @@ OUTPUT = DATA / "output"
 INTERMEDIATE = DATA / "intermediate"
 CANDIDATES_PATH = INTERMEDIATE / "candidates.jsonl"
 VERIFIED_PATH = INTERMEDIATE / "verified.jsonl"
+BLOCKED_PATH = INTERMEDIATE / "blocked_candidates.jsonl"
+REJECTED_LINGUISTIC_PATH = INTERMEDIATE / "rejected_linguistic.jsonl"
 JSONL_PATH = OUTPUT / "catalogue_sources_marocaines_ai.jsonl"
 CSV_PATH = OUTPUT / "catalogue_sources_marocaines_ai.csv"
 XLSX_PATH = OUTPUT / "catalogue_sources_marocaines_ai.xlsx"
@@ -91,6 +99,9 @@ REVIEW_COLUMNS = [
     "Robots_txt",
     "Source_decouverte",
     "Mots_cles_associes",
+    "Densite_darija",
+    "Seuil_darija",
+    "Motif_selection",
     "Notes_validation",
 ]
 
@@ -114,29 +125,6 @@ SOCIAL_DISCOVERY_METHODS: set[str] = set()
 
 STATIC_BACKGROUND_PLATFORMS: set[str] = set()
 
-EXCLUDED_WEB_PLATFORMS = {
-    "facebook.com",
-    "fb.com",
-    "github.com",
-    "huggingface.co",
-    "kaggle.com",
-    "youtu.be",
-    "youtube.com",
-}
-
-EXCLUDED_DISCOVERY_METHODS = {
-    "facebook_dork",
-    "facebook_page",
-    "facebook_public_page",
-    "google_facebook_dork",
-    "youtube_channel",
-    "youtube_keyword",
-    "youtube_search",
-    "youtube_shorts",
-    "youtube_videos",
-}
-
-
 def _review_record(record: dict) -> dict:
     """Prepare one row for human validation before crawler export."""
     return {
@@ -152,6 +140,9 @@ def _review_record(record: dict) -> dict:
         "Robots_txt": record.get("Robots_txt", ""),
         "Source_decouverte": record.get("Source_decouverte") or record.get("source_url", ""),
         "Mots_cles_associes": record.get("Mots_cles_associes") or record.get("anchor_text", ""),
+        "Densite_darija": record.get("Densite_darija", ""),
+        "Seuil_darija": record.get("Seuil_darija", ""),
+        "Motif_selection": record.get("Motif_selection", ""),
         "Notes_validation": "",
     }
 
@@ -172,7 +163,7 @@ def _crawler_manifest_record(row: dict) -> dict:
     url = normalize_url(row.get("URL_finale", ""))
     return {
         "url": url,
-        "domain": row.get("Domaine") or get_domain(url),
+        "domain": get_domain(url),
         "source_name": row.get("Nom_source", ""),
         "source_category": row.get("Categorie_principale", ""),
         "priority": row.get("Priorite", ""),
@@ -180,6 +171,7 @@ def _crawler_manifest_record(row: dict) -> dict:
         "review_decision": row.get("Decision_validation", ""),
         "review_notes": row.get("Notes_validation", ""),
         "discovery_source": row.get("Source_decouverte", ""),
+        "robots_txt": row.get("Robots_txt", ""),
         "exported_at": datetime.now(timezone.utc).isoformat(),
     }
 
@@ -191,14 +183,26 @@ def export_crawler_input_from_review(review_path: Path, urls_path: Path, manifes
 
     accepted_rows: list[dict] = []
     seen_urls: set[str] = set()
+    rejected_reasons: Counter[str] = Counter()
     with review_path.open("r", newline="", encoding="utf-8-sig") as handle:
         reader = csv.DictReader(handle)
         for row in reader:
             decision = str(row.get("Decision_validation", "")).strip().lower()
             if decision not in ACCEPTED_REVIEW_DECISIONS:
                 continue
-            url = normalize_url(row.get("URL_finale", ""))
-            if not url or url in seen_urls:
+            raw_url = row.get("URL_finale", "")
+            if not is_regular_website_url(raw_url):
+                rejected_reasons["url_invalide_ou_hors_perimetre"] += 1
+                continue
+            url = normalize_url(raw_url)
+            if not is_regular_website_url(url):
+                rejected_reasons["url_invalide_ou_hors_perimetre"] += 1
+                continue
+            if str(row.get("Robots_txt") or "").strip().casefold() != "oui":
+                rejected_reasons["robots_non_autorise_ou_inconnu"] += 1
+                continue
+            if url in seen_urls:
+                rejected_reasons["doublon"] += 1
                 continue
             seen_urls.add(url)
             row["URL_finale"] = url
@@ -210,6 +214,8 @@ def export_crawler_input_from_review(review_path: Path, urls_path: Path, manifes
     return {
         "review_csv": str(review_path),
         "accepted_links": len(accepted_rows),
+        "rejected_links": sum(rejected_reasons.values()),
+        "rejection_reasons": dict(rejected_reasons),
         "urls_txt": str(urls_path),
         "crawl_manifest_jsonl": str(manifest_path),
     }
@@ -234,8 +240,7 @@ def _is_regular_website_seed(seed: dict) -> bool:
     url = str(seed.get("url", ""))
     if not url:
         return False
-    domain = get_domain(url).lower().removeprefix("www.")
-    return not any(domain == excluded or domain.endswith(f".{excluded}") for excluded in EXCLUDED_WEB_PLATFORMS)
+    return is_regular_website_url(url)
 
 
 def _regular_website_seeds(seeds: list[dict]) -> list[dict]:
@@ -593,7 +598,7 @@ def mvp_load(args: argparse.Namespace) -> list[dict]:
     export_jsonl(records, JSONL_PATH)
     export_csv(records, CSV_PATH, CATALOG_COLUMNS)
     DataExporter(records).export_excel_by_platform(XLSX_PATH)
-    export_manual_review(records)
+    export_manual_review(records, REVIEW_CSV_PATH)
     LOGGER.info("[ETL - Load] Export Excel: %s", XLSX_PATH)
     LOGGER.info("[ETL - Load] Export JSONL IA: %s", JSONL_PATH)
     LOGGER.info("[ETL - Load] Export revue manuelle: %s", REVIEW_CSV_PATH)
@@ -622,6 +627,8 @@ def run_mvp_etl(args: argparse.Namespace) -> dict:
         "catalogue_xlsx": str(XLSX_PATH),
         "manual_review_csv": str(REVIEW_CSV_PATH),
         "training_jsonl": str(JSONL_PATH),
+        "blocked_candidates_jsonl": str(BLOCKED_PATH),
+        "rejected_linguistic_jsonl": str(REJECTED_LINGUISTIC_PATH),
         "uv_command": "uv run python -m src.main",
     }
 
@@ -668,7 +675,10 @@ def collect(args: argparse.Namespace) -> list[dict]:
     return records
 
 
-def _base_record(candidate: LinkCandidate, idx: int, check: dict, settings: dict, regions_config: dict) -> dict:
+def _base_record(
+    candidate: LinkCandidate, idx: int, check: dict, settings: dict, regions_config: dict,
+    *, min_darija_density: float | None = None,
+) -> dict:
     """Construit une ligne catalogue analysee, verifiee, enrichie et scoree."""
     now = datetime.now(timezone.utc).date().isoformat()
     final_url = check.get("final_url") or candidate.url
@@ -702,7 +712,7 @@ def _base_record(candidate: LinkCandidate, idx: int, check: dict, settings: dict
             "URL_licence": "",
             "Autorisation_entrainement_IA": "Inconnue",
         }
-    robots = robots_status(final_url, settings.get("user_agent", "*"))
+    robots = check.get("robots_txt", "A_verifier")
     record = {
         "ID": idx,
         "Nom_source": candidate.source_name,
@@ -724,6 +734,8 @@ def _base_record(candidate: LinkCandidate, idx: int, check: dict, settings: dict
     }
     if robots == "Non":
         record["Autorisation_collecte"] = "Non"
+    if min_darija_density is not None:
+        record = apply_darija_threshold(record, min_darija_density)
     return score_record(record)
 
 
@@ -840,10 +852,27 @@ def expand(args: argparse.Namespace) -> dict:
     cache = JsonCache(DATA / "cache" / "expansion_url_checks.json", ttl_hours=settings.get("cache_ttl_hours", 168))
     new_records: list[dict] = []
     for candidate in candidates:
+        if not is_regular_website_url(candidate.url):
+            continue
+        user_agent = settings.get("user_agent", "MoroccanSourcesCollector/0.1")
+        if robots_status(candidate.url, user_agent, timeout=float(settings["request_timeout_seconds"])) != "Oui":
+            continue
         cached = cache.get(candidate.url, force=getattr(args, "force", False))
+        if cached and cached.get("collection_policy_version") != 1:
+            cached = None
+        if cached:
+            target = cached.get("final_url") or candidate.url
+            if (
+                not is_regular_website_url(target)
+                or robots_status(target, user_agent, timeout=float(settings["request_timeout_seconds"])) != "Oui"
+            ):
+                continue
         if cached is None:
             result = check_url(candidate.url, timeout=float(settings["request_timeout_seconds"]), user_agent=settings.get("user_agent", "*"))
             cached = result.__dict__
+            if cached.get("robots_txt") != "Oui" or not is_regular_website_url(cached.get("final_url") or candidate.url):
+                continue
+            cached["collection_policy_version"] = 1
             cache.set(candidate.url, cached)
         if cached.get("error"):
             log_error(LOGS, candidate.url, "expansion_verify", cached["error"])
@@ -916,33 +945,77 @@ def verify(args: argparse.Namespace) -> list[dict]:
     settings = load_yaml(CONFIG / "settings.yaml")
     regions_config = load_yaml(CONFIG / "regions.yaml")
     candidates_data = load_jsonl(CANDIDATES_PATH)
-    if not candidates_data:
+    if not CANDIDATES_PATH.exists():
         candidates_data = collect(args)
+    threshold = _density_threshold(getattr(args, "min_darija_density", 0.15))
     max_links = getattr(args, "max_links", None)
     if max_links:
         candidates_data = candidates_data[:max_links]
     cache = JsonCache(DATA / "cache" / "url_checks.json", ttl_hours=settings.get("cache_ttl_hours", 168))
     records = []
+    blocked = []
+    linguistic_rejections = []
+    timeout = float(settings.get("request_timeout_seconds", 20))
+    user_agent = settings.get("user_agent", "MoroccanSourcesCollector/0.1")
+
+    def reject(url: str, reason: str) -> None:
+        blocked.append({"url": url, "reason": reason})
+        LOGGER.info("Candidate withheld before content analysis: %s (%s)", url, reason)
+
     for idx, data in enumerate(candidates_data, start=1):
         candidate = candidate_from_dict(data)
+        if not is_regular_website_url(candidate.url):
+            reject(candidate.url, "url_invalide_ou_hors_perimetre")
+            continue
         url = normalize_url(candidate.url)
+        if not is_regular_website_url(url):
+            reject(url, "url_invalide_ou_hors_perimetre")
+            continue
+        robots = robots_status(url, user_agent, timeout=timeout)
+        if robots != "Oui":
+            reject(url, "robots_interdit" if robots == "Non" else "robots_a_verifier")
+            continue
         cached = cache.get(url, force=getattr(args, "force", False))
+        # Old cache entries were fetched before redirect/scope enforcement.
+        if cached and cached.get("collection_policy_version") != 1:
+            cached = None
+        if cached:
+            target = cached.get("final_url") or url
+            if not is_regular_website_url(target):
+                cached = None
+            else:
+                final_robots = robots if target == url else robots_status(target, user_agent, timeout=timeout)
+                if final_robots != "Oui":
+                    reject(target, "robots_interdit" if final_robots == "Non" else "robots_a_verifier")
+                    continue
+                cached = {**cached, "robots_txt": final_robots}
         if cached is None:
-            result = check_url(
-                url,
-                timeout=float(settings.get("request_timeout_seconds", 20)),
-                user_agent=settings.get("user_agent", "MoroccanSourcesCollector/0.1"),
-            )
+            result = check_url(url, timeout=timeout, user_agent=user_agent)
             cached = result.__dict__
+            if (
+                cached.get("robots_txt") != "Oui"
+                or not is_regular_website_url(cached.get("final_url") or url)
+            ):
+                reject(url, cached.get("status_lien") or "controle_collecte_non_valide")
+                continue
+            cached["collection_policy_version"] = 1
             cache.set(url, cached)
         if cached.get("error"):
             log_error(LOGS, url, "verify", cached["error"])
         try:
-            records.append(_base_record(candidate, idx, cached, settings, regions_config))
+            record = _base_record(
+                candidate, idx, cached, settings, regions_config, min_darija_density=threshold
+            )
+            if record["Eligible_collecte"]:
+                records.append(record)
+            else:
+                linguistic_rejections.append(record)
         except Exception as exc:
             log_error(LOGS, url, "analysis", str(exc))
     cache.save()
     export_jsonl(records, VERIFIED_PATH)
+    export_jsonl(blocked, BLOCKED_PATH)
+    export_jsonl(linguistic_rejections, REJECTED_LINGUISTIC_PATH)
     LOGGER.info("Verified %s records", len(records))
     return records
 
@@ -950,12 +1023,12 @@ def verify(args: argparse.Namespace) -> list[dict]:
 def export_outputs(args: argparse.Namespace) -> list[dict]:
     """Ecrit les donnees transformees en JSONL, CSV, Excel et fichier de revue manuelle."""
     records = load_jsonl(VERIFIED_PATH)
-    if not records:
+    if not VERIFIED_PATH.exists():
         records = verify(args)
     export_jsonl(records, JSONL_PATH)
     export_csv(records, CSV_PATH, CATALOG_COLUMNS)
     DataExporter(records).export_excel_by_platform(XLSX_PATH)
-    export_manual_review(records)
+    export_manual_review(records, REVIEW_CSV_PATH)
     LOGGER.info("Exported JSONL, CSV and Excel")
     return records
 
@@ -1057,6 +1130,17 @@ def audit_links(args: argparse.Namespace) -> dict:
     return summary
 
 
+def _density_threshold(value: str | float) -> float:
+    """Validate CLI and programmatic thresholds before starting collection."""
+    try:
+        threshold = float(value)
+    except (TypeError, ValueError) as exc:
+        raise argparse.ArgumentTypeError("La densite Darija doit etre un nombre entre 0 et 1.") from exc
+    if not math.isfinite(threshold) or not 0 <= threshold <= 1:
+        raise argparse.ArgumentTypeError("La densite Darija doit etre comprise entre 0 et 1.")
+    return threshold
+
+
 def build_parser() -> argparse.ArgumentParser:
     """Construit le parseur CLI et declare toutes les commandes disponibles."""
     parser = argparse.ArgumentParser(
@@ -1065,15 +1149,17 @@ def build_parser() -> argparse.ArgumentParser:
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.add_argument("--max-links", type=int, default=800, help="MVP target for regular website candidates.")
-    parser.add_argument("--min-darija-density", type=float, default=0.15, help="Minimum Darija density required after transformation.")
+    parser.add_argument("--min-darija-density", type=_density_threshold, default=0.15, help="Minimum content Darija density (0 to disable); Arabic, parallel and Moroccan culture exceptions apply.")
     sub = parser.add_subparsers(dest="command", required=False)
     mvp_cmd = sub.add_parser("mvp", help="Run the website-only MVP ETL: Extraction -> Verification -> Export.")
     mvp_cmd.add_argument("--max-links", type=int, default=800)
-    mvp_cmd.add_argument("--min-darija-density", type=float, default=0.15)
+    mvp_cmd.add_argument("--min-darija-density", type=_density_threshold, default=argparse.SUPPRESS)
     for name in ["collect", "verify", "export", "run-all"]:
         cmd = sub.add_parser(name)
         cmd.add_argument("--max-links", type=int, default=None)
         cmd.add_argument("--force", action="store_true")
+        if name in {"verify", "run-all"}:
+            cmd.add_argument("--min-darija-density", type=_density_threshold, default=argparse.SUPPRESS)
         if name == "collect":
             cmd.add_argument("--category", choices=["darija", "culture", "parallel"], default=None)
         if name == "verify":

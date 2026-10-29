@@ -19,6 +19,7 @@ CATALOG_COLUMNS = [
     "Methode_acces", "Statut_HTTP", "Statut_lien", "Redirection", "Robots_txt", "Licence",
     "URL_licence", "Autorisation_entrainement_IA", "Priorite", "Score_pertinence", "Score_fiabilite",
     "Date_verification", "Source_decouverte", "Mots_cles_associes", "Notes", "Ouvrir",
+    "Densite_darija", "Seuil_darija", "Eligible_collecte", "Motif_selection",
 ]
 
 

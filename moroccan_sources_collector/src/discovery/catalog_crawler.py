@@ -13,6 +13,7 @@ from src.discovery.search_adapters import BrowserDiscoveryConfig, PlaywrightDisc
 from src.utils.url_utils import LinkCandidate, get_registered_domain, normalize_url
 from src.validation.robots_checker import robots_status
 from src.validation.url_checker import check_url
+from src.validation.url_policy import EXCLUDED_DISCOVERY_METHODS, is_regular_website_url
 
 LOGGER = logging.getLogger(__name__)
 
@@ -20,10 +21,8 @@ LOGGER = logging.getLogger(__name__)
 class CatalogCrawler:
     """Discovery orchestrator.
 
-    The class keeps the original HTTP crawler for stable catalog sites and adds a
-    native async Playwright discovery layer for dynamic public pages such as
-    YouTube search results, YouTube channel tabs, Google dorks, and public
-    Facebook pages.
+    HTTP and Playwright discovery share the website-only destination policy.
+    Historical social extractors remain available separately from this workflow.
     """
 
     def __init__(self, settings: dict, log_dir: Path):
@@ -34,6 +33,7 @@ class CatalogCrawler:
     def crawl(self, seeds: list[dict], max_links: int | None = None) -> list[LinkCandidate]:
         """Parcourt des sources distantes pour d?couvrir de nouvelles URLs candidates."""
         max_links = max_links or self.settings.get("max_total_links", 500)
+        seeds = [seed for seed in seeds if self._is_regular_seed(seed)]
         http_seeds = [seed for seed in seeds if not self._is_playwright_seed(seed)]
         browser_seeds = [seed for seed in seeds if self._is_playwright_seed(seed)]
         results: list[LinkCandidate] = []
@@ -63,11 +63,14 @@ class CatalogCrawler:
     async def crawl_playwright_async(self, seeds: list[dict], max_links: int | None = None) -> list[LinkCandidate]:
         """Parcourt des sources distantes pour d?couvrir de nouvelles URLs candidates."""
         records = await self.discover_structured_async(seeds, max_links=max_links)
-        return [self._record_to_candidate(record) for record in records]
+        return [self._record_to_candidate(record) for record in records if is_regular_website_url(record.get("url", ""))]
 
     async def discover_structured_async(self, seeds: list[dict], max_links: int | None = None) -> list[dict]:
         """D?crit le fonctionnement de `discover_structured_async` et retourne le r?sultat attendu par le module."""
         max_links = max_links or self.settings.get("max_total_links", 500)
+        seeds = [seed for seed in seeds if self._is_regular_seed(seed)]
+        if not seeds:
+            return []
         config = self._browser_config()
         raw_links: list[DiscoveredLink] = []
         domain_counts: Counter[str] = Counter()
@@ -85,6 +88,8 @@ class CatalogCrawler:
                 batch = seeds[batch_start : batch_start + config.max_concurrent_pages]
                 for result in await asyncio.gather(*(run_seed(seed) for seed in batch)):
                     for link in result:
+                        if not is_regular_website_url(link.url):
+                            continue
                         domain = get_registered_domain(link.url)
                         if domain_counts[domain] >= max_links_per_domain:
                             continue
@@ -108,7 +113,7 @@ class CatalogCrawler:
 
         queue: deque[LinkCandidate] = deque()
         for seed in seeds:
-            if not seed.get("url"):
+            if not self._is_regular_seed(seed):
                 continue
             queue.append(
                 LinkCandidate(
@@ -128,24 +133,35 @@ class CatalogCrawler:
 
         while queue and len(results) < max_links:
             candidate = queue.popleft()
+            if not is_regular_website_url(candidate.url):
+                continue
             url = normalize_url(candidate.url)
             domain = get_registered_domain(url)
             if url in seen or pages_by_domain[domain] >= max_pages_per_domain:
                 continue
             seen.add(url)
             pages_by_domain[domain] += 1
-            results.append(candidate)
 
-            if candidate.depth >= max_depth or robots_status(url, user_agent) == "Non":
+            if robots_status(url, user_agent) != "Oui":
+                LOGGER.info("Skipped URL without robots permission: %s", url)
+                continue
+            if candidate.depth >= max_depth:
+                results.append(candidate)
                 continue
             check = check_url(url, timeout=timeout, user_agent=user_agent)
+            if not is_regular_website_url(check.final_url) or getattr(check, "robots_txt", "A_verifier") != "Oui":
+                continue
+            results.append(candidate)
             if check.status_lien not in {"Accessible", "Accessible_avec_redirection"} or "html" not in check.content_type:
                 continue
+            final_domain = get_registered_domain(check.final_url)
             for child_url, anchor_text in extract_links(check.html, check.final_url):
                 if len(results) + len(queue) >= max_links * 2:
                     break
+                if not is_regular_website_url(child_url):
+                    continue
                 child_domain = get_registered_domain(child_url)
-                relevant = child_domain == domain or any(
+                relevant = child_domain == final_domain or any(
                     token in (anchor_text + " " + child_url).lower()
                     for token in ["darija", "moroccan", "maroc", "المغرب", "دارجة", "arabic", "dataset", "corpus", "culture"]
                 )
@@ -173,6 +189,9 @@ class CatalogCrawler:
         limit = int(seed.get("max_results") or seed.get("max_pages") or self.settings.get("max_results_per_query", 50))
         query = seed.get("query") or seed.get("name") or ""
         url = seed.get("url") or ""
+
+        if not self._is_regular_seed(seed):
+            return []
 
         if method in {"youtube_search", "youtube_keyword"}:
             return await adapter.youtube_search(query, limit)
@@ -204,7 +223,13 @@ class CatalogCrawler:
             max_scrolls=int(self.settings.get("playwright_max_scrolls", 18)),
             max_results_per_query=int(self.settings.get("max_results_per_query", 50)),
             max_concurrent_pages=int(self.settings.get("playwright_max_concurrent_pages", 2)),
+            enforce_web_policy=True,
         )
+
+    @staticmethod
+    def _is_regular_seed(seed: dict) -> bool:
+        method = str(seed.get("discovery_method") or "").strip().lower()
+        return method not in EXCLUDED_DISCOVERY_METHODS and is_regular_website_url(seed.get("url", ""))
 
     @staticmethod
     def _is_playwright_seed(seed: dict) -> bool:
@@ -258,6 +283,8 @@ class CatalogCrawler:
         seen: set[str] = set()
         unique: list[LinkCandidate] = []
         for candidate in candidates:
+            if not is_regular_website_url(candidate.url):
+                continue
             url = normalize_url(candidate.url)
             if url in seen:
                 continue
