@@ -1,10 +1,3 @@
-from datatrove.data import MediaType
-from datatrove.pipeline.readers.base import BaseDiskReader
-from datatrove.io import DataFolderLike, DataFileLike
-from typing import Callable, Literal
-from pandas import Timestamp
-from uuid import uuid4
-
 from typing import TYPE_CHECKING, Callable, Literal
 
 from datatrove.io import DataFileLike, DataFolderLike
@@ -21,7 +14,8 @@ class WarcGeneralReader(BaseDiskReader):
     Args:
         data_folder: a str, tuple or DataFolder object representing a path/filesystem
         paths_file: optionally provide a file with one path per line (without the `data_folder` prefix) to read.
-        compression: the compression to use (default: "infer")
+        compression: None, "infer" or "gzip"; Warcio detects raw/gzip records.
+            Other codecs cannot provide physical archive offsets for replay.
         limit: limit the number of documents to read. Useful for debugging
         skip: skip the first n rows
         file_progress: show progress bar for files
@@ -39,13 +33,13 @@ class WarcGeneralReader(BaseDiskReader):
     """
 
     name = "🕷 Warc"
-    _requires_dependencies = ["warcio", ("cchardet", "faust-cchardet"), ("magic", "python-magic")]
+    _requires_dependencies = ["warcio"]
 
     def __init__(
         self,
         data_folder: DataFolderLike,
         paths_file: DataFileLike | None = None,
-        compression: Literal["infer", "gzip", "zstd"] | None = "infer",
+        compression: Literal["infer", "gzip"] | None = "infer",
         limit: int = -1,
         skip: int = 0,
         file_progress: bool = False,
@@ -58,6 +52,8 @@ class WarcGeneralReader(BaseDiskReader):
         glob_pattern: str | None = None,
         shuffle_files: bool = False,
     ):
+        if compression not in {None, "infer", "gzip"}:
+            raise ValueError("WARC compression must be None, 'infer' or 'gzip' to preserve physical archive offsets")
         self.compression = compression
         super().__init__(
             data_folder,
@@ -78,15 +74,22 @@ class WarcGeneralReader(BaseDiskReader):
     def read_file(self, filepath: str):
         from warcio.archiveiterator import ArchiveIterator
 
-        with self.data_folder.open(filepath, "rb", compression=self.compression) as f:
+        # Warcio must see the original gzip members. Decompressing in fsspec
+        # would turn offsets into positions in a virtual, uncompressed stream.
+        with self.data_folder.open(filepath, "rb", compression=None) as f:
             archive_iterator = ArchiveIterator(f)
-            for ri, record in enumerate(ArchiveIterator(f)):
+            for ri, record in enumerate(archive_iterator):
                 offset = archive_iterator.offset
                 with self.track_time():
                     name = filepath
                     extracted_data = process_record(record, offset, name)
+                    # These accessors finish the current member and report its
+                    # actual archive byte range, not its HTTP Content-Length.
+                    offset = archive_iterator.get_record_offset()
+                    length = archive_iterator.get_record_length()
                     if not extracted_data:
                         continue
+                    extracted_data["media"][0].update(offset=offset, length=length)
                     document = self.get_document_from_dict(extracted_data, filepath, ri)
                     if not document:
                         continue
@@ -125,8 +128,6 @@ def process_record(record: "ArcWarcRecord", offset: int, name: str) -> dict | No
         - warc_filename: Name of the WARC file
         - content_digest: Content digest hash if available
     """
-    import cchardet
-    import magic
     import base64
     # record type
     record_type = record.rec_type
@@ -136,10 +137,25 @@ def process_record(record: "ArcWarcRecord", offset: int, name: str) -> dict | No
     # content type filtering
     content_bytes = record.content_stream().read()
     
-    original_mime_type = record.content_type.split(";")[0]
-    detected_mime_type = record.rec_headers.get("WARC-Identified-Payload-Type", None)
-    if detected_mime_type is None:
-        detected_mime_type = magic.from_buffer(content_bytes, mime=True)
+    # The WARC response envelope is application/http; the payload type belongs
+    # to its HTTP headers. Keep explicit types usable without a native sniffer.
+    http_content_type = record.http_headers.get_header("Content-Type") if record.http_headers else None
+    original_mime_type = (http_content_type or record.content_type or "").split(";", 1)[0].strip().lower()
+    detected_mime_type = record.rec_headers.get("WARC-Identified-Payload-Type")
+    if detected_mime_type:
+        detected_mime_type = detected_mime_type.split(";", 1)[0].strip().lower()
+    elif original_mime_type not in {"", "application/http", "application/octet-stream", "binary/octet-stream"}:
+        detected_mime_type = original_mime_type
+    else:
+        # libmagic is optional for records without a usable MIME header. If its
+        # native library is unavailable, leave detection unknown rather than
+        # treating arbitrary bytes as HTML.
+        try:
+            import magic
+
+            detected_mime_type = magic.from_buffer(content_bytes, mime=True)
+        except (ImportError, OSError):
+            detected_mime_type = None
 
     id_ = record.rec_headers["WARC-Record-ID"]
     url = record.rec_headers.get("WARC-Target-URI", None)
@@ -149,7 +165,10 @@ def process_record(record: "ArcWarcRecord", offset: int, name: str) -> dict | No
     if not date:
         date = dict(record.rec_headers.headers)["archive-date"]
 
-    date = date.to_pydatetime() if isinstance(date, Timestamp) else date
+    # WARC headers normally contain strings; retain timestamp-like adapters
+    # without importing pandas (and its native extensions) just to read WARC.
+    if callable(getattr(date, "to_pydatetime", None)):
+        date = date.to_pydatetime()
 
     ret = {
         "text": "<no content>",
@@ -169,7 +188,7 @@ def process_record(record: "ArcWarcRecord", offset: int, name: str) -> dict | No
             "record_type": record_type,
             "metadata": {
                 "fetch_time": date,
-                "fetch_status": record.http_headers.statusline,
+                "fetch_status": record.http_headers.statusline if record.http_headers else "",
                 "content_mime_type": original_mime_type,
                 "content_mime_detected": detected_mime_type,
                 "content_languages": None,

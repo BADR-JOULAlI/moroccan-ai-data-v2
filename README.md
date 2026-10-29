@@ -362,6 +362,34 @@ logs/<prefix>.failed_urls.txt
 
 ## Lancement de l'extraction Datatrove
 
+Le point d'entree charge sa configuration et verifie les ressources avant les
+modeles. `--help` fonctionne sans les dependances PDF. `--check-only` produit un
+rapport JSON, ne cree aucune sortie et ne contacte aucun serveur OCR.
+
+Pour commencer par le mode HTML, depuis le dossier `datatrove_extraction` :
+
+```bash
+uv run --no-project --with-requirements ../requirements-html.txt python process.py --config extraction.example.json --check-only
+uv run --no-project --with-requirements ../requirements-html.txt python process.py --config extraction.example.json --validate-warc
+```
+
+Adapter d'abord les chemins du JSON vers les WARC et un tokenizer local valide.
+Les chemins JSON sont relatifs au fichier de configuration; les chemins passes
+en options sont relatifs au dossier courant. L'exemple utilise explicitement le
+profil de mots `unicode`, sans modele linguistique natif. Il permet les tests
+locaux, mais ses limites de mots ne sont pas identiques a celles de `spacy`.
+Le profil historique `spacy` reste la valeur par defaut hors de cet exemple.
+
+Le mode `full` exige en plus le classifieur PDF, le XML et les poids BIN
+OpenVINO, un dossier d'artefacts Docling local et les champs `ocr_model` et
+`ocr_endpoint`. Ces valeurs ne sont plus des chemins HPC ou serveurs implicites.
+Le controle de presence ne charge pas les poids et ne prouve pas que le serveur
+est joignable. Le mode PDF/OCR complet reste a valider avec ces ressources.
+
+Les parametres sont enregistres dans `run_config.json`. Pour changer de profil,
+de segment, de chemins ou de nombre de travailleurs, choisir un nouveau dossier
+de sortie; les sorties existantes d'une autre configuration ne sont pas reutilisees.
+
 Les WARC doivent etre places dans :
 
 ```text
@@ -374,23 +402,24 @@ Exemple :
 datatrove_extraction/input/segment-2026-07/site_001/*.warc.gz
 ```
 
-Puis lancer :
+Copier `extraction.example.json` vers `extraction.local.json`, puis adapter les
+chemins d'entree, de sortie et du tokenizer. Avec ces ressources preparees :
 
 ```bash
 cd crawler_project-main/crawler_project-main/datatrove_extraction
-uv run process.py --segment segment-2026-07
+uv run process.py --config extraction.local.json
 ```
 
 Valider les WARC avant traitement :
 
 ```bash
-uv run process.py --segment segment-2026-07 --validate-warc
+uv run process.py --config extraction.local.json --validate-warc
 ```
 
 Valider et tenter une reparation automatique :
 
 ```bash
-uv run process.py --segment segment-2026-07 --validate-warc --auto-repair
+uv run process.py --config extraction.local.json --validate-warc --auto-repair
 ```
 
 Sorties principales :
@@ -436,7 +465,7 @@ Extraction :
 
 ```bash
 cd ../datatrove_extraction
-uv run process.py --segment segment-2026-07
+uv run process.py --config extraction.local.json
 ```
 
 ## Tests
@@ -472,6 +501,12 @@ des reponses OCR simulees. Ils ne lancent aucun crawl ni telechargement de model
 Bash est requis pour les tests du script de crawl (Git Bash sous Windows).
 Le fichier `requirements-test.txt` suffit pour ces regressions sans installer
 l'ensemble des dependances PDF/OCR du projet.
+
+Le test `tests/test_local_html_pipeline.py` execute aussi le collecteur avec
+des reponses HTTP locales simulees, une revue humaine de test, de vraies archives
+WARC, puis l'extraction HTML, les filtres qualite et MinHash reels. Il verifie
+le meme resultat avec un et deux travailleurs. Son petit tokenizer de tokens
+est genere localement pour le test, sans representer un modele de production.
 
 L'extraction normale lit desormais tous les documents du segment, sans plafond
 de 15 documents par tache. Tout code Wget non nul produit un bilan d'echec, ajoute

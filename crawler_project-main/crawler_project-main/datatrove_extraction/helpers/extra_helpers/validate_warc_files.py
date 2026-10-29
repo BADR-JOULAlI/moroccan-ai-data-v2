@@ -51,6 +51,16 @@ def validate_warc_file(
         with open(warc_path, 'rb') as f:
             for record in ArchiveIterator(f):
                 record_count += 1
+                # Warcio also accepts legacy ARC, including some arbitrary
+                # whitespace-separated input. A WARC validation must not label
+                # those records as a valid archive for this pipeline.
+                if record.format != "warc":
+                    return False, record_count, f"Expected WARC record, found {record.format}"
+                for header in ("WARC-Type", "WARC-Record-ID", "WARC-Date", "Content-Length"):
+                    if not record.rec_headers.get_header(header):
+                        return False, record_count, f"Missing WARC header: {header}"
+                if int(record.rec_headers.get_header("Content-Length")) < 0:
+                    return False, record_count, "Negative WARC Content-Length"
 
                 if full_content_check:
                     # Original slow path: read every payload byte
@@ -69,6 +79,8 @@ def validate_warc_file(
                 # and parses the WARC header; that is sufficient for structural
                 # validation without touching the payload bytes at all.
 
+        if record_count == 0:
+            return False, 0, "Archive contains no WARC records"
         return True, record_count, None
 
     except Exception as e:

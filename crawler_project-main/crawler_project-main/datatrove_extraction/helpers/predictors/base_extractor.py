@@ -1,5 +1,5 @@
 from abc import abstractmethod
-from multiprocessing import Pipe, Process
+from copy import copy
 import contextlib
 import base64
 
@@ -8,7 +8,7 @@ from datatrove.pipeline.base import PipelineStep
 from datatrove.utils.logging import logger
 from datatrove.data import MediaType
 from datatrove.utils.typeshelper import StatHints
-from datatrove.pipeline.extractors.base import ExtractorSandbox
+from .media_sandbox import MediaExtractionSandbox, MediaWorkerCleanupError
 from typing import Optional
 from typing import Iterable
 from datatrove.data import Document
@@ -47,7 +47,11 @@ class BaseMediaExtractor(PipelineStep):
         return base64.b64decode(content_b64)
 
     def run(self, data: DocumentsPipeline, rank: int = 0, world_size: int = 1) -> DocumentsPipeline:
-        with (ExtractorSandbox(timeout=self.timeout) as extractor, self.exclusion_writer if self.exclusion_writer else contextlib.nullcontext() as exclusion_writer):
+        # Writers stay in the parent. In particular, their open streams must not
+        # be serialized along with a bound extraction method on spawn platforms.
+        worker_extractor = copy(self)
+        worker_extractor.exclusion_writer = None
+        with (MediaExtractionSandbox(self.timeout, worker_extractor.extract) as extractor, self.exclusion_writer if self.exclusion_writer else contextlib.nullcontext() as exclusion_writer):
             for doc in data:
                 self.stat_update(StatHints.total)
                 with self.track_time():
@@ -55,7 +59,8 @@ class BaseMediaExtractor(PipelineStep):
                     for media in doc.media:
                         try:
                             media_bytes = self._get_media_bytes(media)
-                            text, metadata = self.extract(media_bytes, media["metadata"])
+                            media["metadata"].pop("extraction_failed", None)
+                            text, metadata = extractor.process(media_bytes, media["metadata"])
                             if metadata.get("extraction_error"):
                                 logger.warning(f"❌ Error {metadata['extraction_error']} while cleaning record text. Skipping record.")
                                 media["metadata"]["extraction_failed"] = metadata["extraction_error"]
@@ -76,6 +81,8 @@ class BaseMediaExtractor(PipelineStep):
                             logger.warning("Process died unexpectedly, will create new process for next document")
                             media["metadata"]["extraction_failed"] = "broken_process"
                             continue
+                        except MediaWorkerCleanupError:
+                            raise
                         except Exception as e:
                             self.stat_update("clean_error")
                             if not self._warned_error:

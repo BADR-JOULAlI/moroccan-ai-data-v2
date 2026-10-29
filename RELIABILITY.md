@@ -67,9 +67,46 @@ Les tests sont hors reseau. Les tests du navigateur simulent les routes et les
 pages; ils ne valident pas un navigateur Chromium reel. Le controle des requetes
 du collecteur ne remplace pas la validation de bout en bout du crawl Wget.
 
+## Troisieme lot : demarrage et extraction locale
+
+- Configuration JSON et options explicites pour les chemins, ressources locales,
+  modele servi, endpoint OCR et nombres de travailleurs. Le preflight regroupe
+  les ressources manquantes avant tout import PDF ou creation de sortie.
+- `--help` et `--check-only` fonctionnent sans les modeles. Le package ne charge
+  plus ses modules lourds a l'import. Le preflight ne contacte pas le serveur.
+- Mode HTML independant des modules PDF, avec profil de mots Unicode explicite
+  pour les tests locaux. Le profil spaCy historique reste le defaut; les deux
+  tokenisations ne sont pas interchangeables pour les seuils et signatures.
+- Les processus utilisent `spawn`. L'extraction HTML et media dispose d'un
+  delai reel et nettoie ses travailleurs sur erreur, timeout ou arret. Un echec
+  de nettoyage est fatal plutot que transforme en simple rejet.
+- Les erreurs d'encodage Windows sont evitees pour les JSONL et logs arabes.
+- Les positions et longueurs WARC portent sur les octets archives reels. Les
+  tests relisent chaque plage gzip et retrouvent l'URL et le contenu d'origine.
+  Les MIME HTML/PDF explicites des en-tetes HTTP ne dependent plus de libmagic;
+  les types ambigus sans detection native restent inconnus.
+- Une validation WARC refuse les archives vides, les faux enregistrements ARC,
+  les champs requis absents et les erreurs detectees. Elle ne demande plus de
+  confirmation interactive et ne continue pas apres une erreur. Une reparation
+  exige une option explicite et conserve les sauvegardes.
+- Le dossier de sortie conserve `run_config.json`. Une configuration differente
+  ou un ancien dossier non suivi impose une nouvelle destination pour eviter
+  de reutiliser silencieusement les completions d'un autre traitement.
+- Le test hors reseau passe par catalogue, acceptations humaines simulees,
+  ecriture de WARC reels et extraction HTML complete : quatre pages donnent deux
+  textes distincts, apres rejet de la page courte et du doublon. Le resultat
+  et la provenance sont verifies avec un et deux travailleurs.
+
 ## Travaux restants
 
-La preparation des modeles, la configuration du serveur OCR, les positions des
-enregistrements WARC et la protection des delais d'extraction necessitent encore
-un lot ulterieur. Un essai complet sur des donnees locales fixes doit ensuite
-valider l'enchainement catalogue, WARC et extraction, avant un crawl reel.
+Les fichiers des modeles PDF/OCR et un serveur compatible doivent encore etre
+fournis et charges pour valider le mode complet. Le preflight verifie leur
+presence, pas la validite des poids ni la disponibilite du serveur. Docling
+recoit un dossier d'artefacts explicite pour eviter son telechargement de layout
+implicite. La serialisation des modeles natifs reels reste a tester.
+
+Le profil spaCy n'a pas ete valide dans l'environnement local de ce lot : ses
+imports natifs y bloquent. Le test HTML utilise explicitement Unicode; il ne
+demontre pas l'equivalence des deux profils. Chromium reel et le crawl Wget
+reseau restent aussi a valider. Le test d'integration genere les WARC a partir
+des reponses de fixture; il ne fait pas intervenir un vrai Wget.
