@@ -92,6 +92,16 @@ class WarcGeneralReader(BaseDiskReader):
                         continue
                 yield document
 
+
+def build_segment_reader(data_folder: DataFolderLike, segment: str) -> WarcGeneralReader:
+    """Read the complete segment; sampling limits must not truncate a dataset run."""
+    return WarcGeneralReader(
+        data_folder=data_folder,
+        glob_pattern="*/*.warc.gz",
+        default_metadata={"segment": segment},
+    )
+
+
 def process_record(record: "ArcWarcRecord", offset: int, name: str) -> dict | None:
     """Process a WARC record to extract metadata for indexing.
 

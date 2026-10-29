@@ -30,7 +30,7 @@ from helpers.filters.C4QualityFilter_ours import C4QualityFilter
 from helpers.filters.ArabicNormalizationFilter import ArabicNormalizationFilter
 from helpers.filters.LatinScriptFilter import ArabicScriptFilter
 from helpers.extra_helpers.validateInputs import validate_inputs
-from helpers.readers.WarcGeneralReader import WarcGeneralReader
+from helpers.readers.WarcGeneralReader import build_segment_reader
 from helpers.main_helpers.utils import filter_non_pdf, filter_non_html, get_content_bytes, filter_ocr
 from helpers.main_helpers.dedup.exact_dedup import (
     ExactDedupConfig, 
@@ -131,11 +131,9 @@ def main():
 
     ############################################## Stage 0: Filtering Stage
     stage0_pipeline = [
-        WarcGeneralReader(
+        build_segment_reader(
             data_folder=str(input_path),
-            glob_pattern="*/*.warc.gz",
-            default_metadata={"segment":SEGMENT_TO_PROCESS},
-            limit=15
+            segment=SEGMENT_TO_PROCESS,
         ),
         LambdaFilter(
             filter_non_html,

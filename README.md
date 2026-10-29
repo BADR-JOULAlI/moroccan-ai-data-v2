@@ -436,6 +436,28 @@ Compilation rapide du script d'extraction :
 uv run python -m py_compile crawler_project-main/crawler_project-main/datatrove_extraction/process.py
 ```
 
+Tests de regression du crawler et de l'extraction, depuis leur racine :
+
+```bash
+cd crawler_project-main/crawler_project-main
+uv run --no-project --with-requirements requirements-test.txt python -m pytest tests crawling/tests -q
+```
+
+Ces tests utilisent des archives WARC generees localement, un faux `wget` et
+des reponses OCR simulees. Ils ne lancent aucun crawl ni telechargement de modele.
+Bash est requis pour les tests du script de crawl (Git Bash sous Windows).
+Le fichier `requirements-test.txt` suffit pour ces regressions sans installer
+l'ensemble des dependances PDF/OCR du projet.
+
+L'extraction normale lit desormais tous les documents du segment, sans plafond
+de 15 documents par tache. Tout code Wget non nul produit un bilan d'echec, ajoute
+les entrees du lot concerne au fichier de reprise et termine le script avec le
+code 3. La reprise se fait au niveau du lot : certaines URL du lot peuvent deja
+avoir ete telechargees.
+
+Voir [le suivi de fiabilisation](RELIABILITY.md) pour le perimetre des corrections
+et les points qui restent a traiter avant un traitement complet.
+
 ## Perimetre linguistique V1
 
 Pour cette premiere version, la collecte vise principalement :

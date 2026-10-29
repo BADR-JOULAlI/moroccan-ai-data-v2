@@ -351,8 +351,8 @@ run_wget_crawl() {
   local wget_exit_code=$?
   set -e
   
-  # Check for critical errors (not quota exhausted)
-  if [[ $wget_exit_code -ne 0 ]] && [[ $wget_exit_code -ne 4 ]] && [[ $wget_exit_code -ne 8 ]]; then
+  # Every nonzero wget status means this input may need to be retried.
+  if [[ $wget_exit_code -ne 0 ]]; then
     echo "Warning: wget exited with code $wget_exit_code for batch $batch_num" >&2
     cat "$input_file" >> "$FAILED_URLS"
     OVERALL_FAILURES=$((OVERALL_FAILURES + 1))
@@ -434,7 +434,7 @@ if [[ "$MODE" == "url" ]]; then
     wget "${WGET_ARGS[@]}" "$SEED_URL"
     WGET_EXIT_CODE=$?
     set -e
-    if [[ $WGET_EXIT_CODE -ne 0 ]] && [[ $WGET_EXIT_CODE -ne 4 ]] && [[ $WGET_EXIT_CODE -ne 8 ]]; then
+    if [[ $WGET_EXIT_CODE -ne 0 ]]; then
       echo "Warning: wget exited with code $WGET_EXIT_CODE for $SEED_URL" >&2
       echo "$SEED_URL" >> "$FAILED_URLS"
       OVERALL_FAILURES=$((OVERALL_FAILURES + 1))
