@@ -21,7 +21,6 @@ from src.storage.cache import JsonCache
 from src.utils.text_utils import clean_text
 from src.utils.url_utils import get_domain, normalize_url, text_fingerprint, url_fingerprint
 from src.validation.content_type_checker import content_kind
-from src.validation.robots_checker import robots_status
 from src.validation.url_checker import check_url
 
 
@@ -52,9 +51,16 @@ class UrlAuditor:
         original = row.get("_input_url") or row.get("URL_finale") or row.get("URL_originale") or ""
         normalized = normalize_url(str(original))
         cached = self.cache.get(normalized, force=self.config.force)
+        if cached and (
+            cached.get("audit_access_policy_version") != 1
+            or cached.get("robots_txt") != "Oui"
+        ):
+            cached = None
         if cached is None:
             cached = self._check_with_retries(normalized)
-            self.cache.set(normalized, cached)
+            if cached.get("robots_txt") == "Oui":
+                cached["audit_access_policy_version"] = 1
+                self.cache.set(normalized, cached)
         html = cached.get("html") or ""
         final_url = cached.get("final_url") or normalized
         soup = BeautifulSoup(html, "lxml") if html else BeautifulSoup("", "lxml")
@@ -92,7 +98,7 @@ class UrlAuditor:
             "Est_soft_404": "Oui" if problem["problem"] == "SOFT_404" else "Non",
             "Est_page_connexion": "Oui" if problem["problem"] == "PAGE_CONNEXION" or type_url == "PAGE_CONNEXION" else "Non",
             "JavaScript_requis": "Oui" if self._javascript_required(html, cached.get("content_type", "")) else "Non",
-            "Robots_txt": robots_status(final_url, self.config.user_agent),
+            "Robots_txt": cached.get("robots_txt", "A_verifier"),
             "Categorie_principale": row.get("Categorie_principale") or row.get("Catégorie") or "",
             **scores,
             "Decision_finale": decision,
@@ -124,10 +130,12 @@ class UrlAuditor:
         """D?crit le fonctionnement de `_check_with_retries` et retourne le r?sultat attendu par le module."""
         last_result = None
         for attempt in range(1, max(self.config.max_attempts, 1) + 1):
-            result = check_url(url, timeout=self.config.timeout, user_agent=self.config.user_agent)
+            # This explicit audit command also diagnoses excluded platforms; it
+            # does not export them as seeds for the website collection pipeline.
+            result = check_url(url, timeout=self.config.timeout, user_agent=self.config.user_agent, url_policy=None)
             last_result = result.__dict__
             status = last_result.get("status_http")
-            transient = last_result.get("status_lien") in {"Timeout", "A_recontroler"} or status in {429, 500, 502, 503, 504}
+            transient = last_result.get("status_lien") in {"Timeout", "A_recontroler", "Robots_a_verifier"} or status in {429, 500, 502, 503, 504}
             if not transient or attempt >= self.config.max_attempts:
                 break
             time.sleep(self.config.request_delay_seconds)
@@ -181,6 +189,11 @@ class UrlAuditor:
 
     def _decision(self, type_url: str, check: dict, problem: dict, hint: dict, scores: dict) -> tuple[str, str]:
         """D?crit le fonctionnement de `_decision` et retourne le r?sultat attendu par le module."""
+        access_status = check.get("status_lien")
+        if access_status in {"Robots_interdit", "Robots_a_verifier", "Hors_perimetre"}:
+            return "A_RECONTROLER", access_status
+        if check.get("robots_txt") in {"Non", "A_verifier"}:
+            return "A_RECONTROLER", "ROBOTS_NON_VALIDE"
         if hint.get("Decision_hint"):
             return hint["Decision_hint"], hint.get("Raison_hint", "")
         status = check.get("status_http")

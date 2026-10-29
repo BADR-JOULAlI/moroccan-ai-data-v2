@@ -21,7 +21,8 @@ def analyze_page(html: str, url: str, seed_category: str, regions_config: dict) 
     h1 = clean_text(soup.find("h1").get_text(" ", strip=True)) if soup.find("h1") else ""
     h2 = "; ".join(clean_text(tag.get_text(" ", strip=True)) for tag in soup.find_all("h2")[:5])
     lang_html = soup.html.get("lang", "") if soup.html else ""
-    text = truncate(soup.get_text("\n", strip=True), 5000)
+    # Keep head metadata separate from the content used by density selection.
+    text = truncate(soup.body.get_text("\n", strip=True), 5000) if soup.body else ""
     combined = " ".join([title, description, h1, h2, text])
     language = detect_language(combined)
     parallel = detect_parallel_text(html, text)

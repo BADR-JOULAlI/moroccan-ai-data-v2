@@ -1,0 +1,8 @@
+# HTML extraction with the explicit Unicode word profile; no PDF/OCR models.
+datatrove==0.7.0
+warcio==1.7.5
+trafilatura>=1.11
+tokenizers>=0.21,<1
+orjson>=3
+zstandard>=0.22
+faust-cchardet>=2.1.19

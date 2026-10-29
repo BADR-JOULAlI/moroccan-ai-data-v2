@@ -21,6 +21,9 @@ from src.discovery.link_extractor import (
     youtube_channel_tab_url,
     youtube_search_url,
 )
+from src.validation.robots_checker import robots_status
+from src.validation.url_checker import check_url
+from src.validation.url_policy import is_regular_website_url
 
 LOGGER = logging.getLogger(__name__)
 
@@ -55,6 +58,7 @@ class BrowserDiscoveryConfig:
     max_scrolls: int = 18
     max_results_per_query: int = 50
     max_concurrent_pages: int = 2
+    enforce_web_policy: bool = False
 
 
 async def human_delay(config: BrowserDiscoveryConfig) -> None:
@@ -80,6 +84,10 @@ class PlaywrightDiscoveryAdapter:
     The adapter renders public pages and extracts visible public links. It does not
     solve CAPTCHA, log in, or bypass access controls. When a platform blocks public
     access, the call returns an empty result and logs the reason.
+
+    Strict website discovery preflights HTTP redirects and guards each browser
+    request. Redirect responses appearing only during rendering are refused;
+    the HTTP discovery path can still process stable redirect chains.
     """
 
     def __init__(self, config: BrowserDiscoveryConfig | None = None):
@@ -97,15 +105,50 @@ class PlaywrightDiscoveryAdapter:
             raise RuntimeError("Playwright is required. Install it with `pip install playwright` and `playwright install`.") from exc
         self._playwright = await async_playwright().start()
         self._browser = await self._playwright.chromium.launch(headless=self.config.headless)
-        self._context = await self._browser.new_context(
-            user_agent=self.config.user_agent,
-            locale=self.config.locale,
-            timezone_id=self.config.timezone_id,
-            viewport={"width": 1366, "height": 900},
-            extra_http_headers={"Accept-Language": "fr-FR,fr;q=0.9,ar-MA;q=0.8,ar;q=0.7,en;q=0.6"},
-        )
+        context_options = {
+            "user_agent": self.config.user_agent,
+            "locale": self.config.locale,
+            "timezone_id": self.config.timezone_id,
+            "viewport": {"width": 1366, "height": 900},
+            "extra_http_headers": {"Accept-Language": "fr-FR,fr;q=0.9,ar-MA;q=0.8,ar;q=0.7,en;q=0.6"},
+        }
+        if self.config.enforce_web_policy:
+            context_options["service_workers"] = "block"
+        self._context = await self._browser.new_context(**context_options)
         self._context.set_default_timeout(self.config.navigation_timeout_ms)
+        if self.config.enforce_web_policy:
+            await self._context.route("**/*", self._guard_web_request)
         return self
+
+    async def _guard_web_request(self, route) -> None:
+        """Authorize the exact request and never delegate an unchecked redirect."""
+        url = route.request.url
+        if not is_regular_website_url(url):
+            LOGGER.info("Blocked browser request outside website scope: %s", url)
+            await route.abort()
+            return
+        response = None
+        try:
+            permission = await asyncio.to_thread(
+                robots_status, url, self.config.user_agent,
+                timeout=self.config.navigation_timeout_ms / 1000,
+            )
+            if permission != "Oui":
+                LOGGER.info("Blocked browser request without robots permission: %s", url)
+                await route.abort()
+                return
+            response = await route.fetch(max_redirects=0, timeout=self.config.navigation_timeout_ms)
+            if 300 <= response.status < 400 and response.headers.get("location"):
+                LOGGER.info("Blocked new browser redirect after HTTP preflight: %s", url)
+                await route.abort()
+                return
+            await route.fulfill(response=response)
+        except Exception as exc:
+            LOGGER.warning("Browser request blocked after validation/fetch failure for %s: %s", url, exc)
+            await route.abort()
+        finally:
+            if response is not None:
+                await response.dispose()
 
     async def __aexit__(self, exc_type, exc, tb) -> None:
         """D?crit le fonctionnement de `__aexit__` et retourne le r?sultat attendu par le module."""
@@ -161,6 +204,9 @@ class PlaywrightDiscoveryAdapter:
 
     async def facebook_public_page_posts(self, page_url: str, limit: int | None = None) -> list[DiscoveredLink]:
         """D?crit le fonctionnement de `facebook_public_page_posts` et retourne le r?sultat attendu par le module."""
+        if self.config.enforce_web_policy:
+            LOGGER.info("Social browser discovery is disabled by the website-only policy")
+            return []
         LOGGER.info("Playwright Facebook public page: %s", page_url)
         # Facebook has a dedicated crawler because its login walls and cookie banners are specific.
         fb_config = FacebookCrawlerConfig(
@@ -190,7 +236,7 @@ class PlaywrightDiscoveryAdapter:
     async def rendered_page_links(self, page_url: str, limit: int | None = None) -> list[DiscoveredLink]:
         """D?crit le fonctionnement de `rendered_page_links` et retourne le r?sultat attendu par le module."""
         LOGGER.info("Playwright rendered page: %s", page_url)
-        return await self._render_and_extract(page_url, lambda html: extract_platform_links(html, page_url, limit or self.config.max_results_per_query), limit)
+        return await self._render_and_extract(page_url, None, limit)
 
     @staticmethod
     def _production_links_to_discovered(urls: list[str], source_url: str, method: str, platform: str) -> list[DiscoveredLink]:
@@ -208,15 +254,46 @@ class PlaywrightDiscoveryAdapter:
     async def _render_and_extract(
         self,
         url: str,
-        extractor: Callable[[str], list[DiscoveredLink]],
+        extractor: Callable[[str], list[DiscoveredLink]] | None,
         limit: int | None,
     ) -> list[DiscoveredLink]:
         """D?crit le fonctionnement de `_render_and_extract` et retourne le r?sultat attendu par le module."""
         if not self._context:
             raise RuntimeError("PlaywrightDiscoveryAdapter must be used as an async context manager.")
+        if self.config.enforce_web_policy:
+            if not is_regular_website_url(url):
+                return []
+            try:
+                preflight = await asyncio.to_thread(
+                    check_url, url, timeout=self.config.navigation_timeout_ms / 1000,
+                    user_agent=self.config.user_agent,
+                )
+            except Exception as exc:
+                LOGGER.warning("Browser HTTP preflight failed for %s: %s", url, exc)
+                return []
+            if (
+                not is_regular_website_url(preflight.final_url)
+                or preflight.robots_txt != "Oui"
+                or preflight.status_lien not in {"Accessible", "Accessible_avec_redirection"}
+            ):
+                LOGGER.info("Browser navigation refused by HTTP preflight: %s", url)
+                return []
+            url = preflight.final_url
         page = await self._context.new_page()
         try:
             await page.goto(url, wait_until="domcontentloaded", timeout=self.config.navigation_timeout_ms)
+            if self.config.enforce_web_policy and not is_regular_website_url(page.url):
+                return []
+
+            def extract_current_page(html: str) -> list[DiscoveredLink]:
+                links = (
+                    extractor(html) if extractor is not None
+                    else extract_platform_links(html, page.url, limit or self.config.max_results_per_query)
+                )
+                if self.config.enforce_web_policy:
+                    links = [link for link in links if is_regular_website_url(link.url)]
+                return links
+
             await human_delay(self.config)
             status = await self._blocked_status(page)
             if status:
@@ -224,17 +301,17 @@ class PlaywrightDiscoveryAdapter:
                 LOGGER.info("Skipping blocked/login page %s: %s", url, status)
                 return [
                     DiscoveredLink(
-                        url=url,
-                        source_origine=url,
+                        url=page.url,
+                        source_origine=page.url,
                         discovery_method="playwright_blocked",
                         platform="",
                         status=status,
                         date_capture=datetime.now(timezone.utc).isoformat(),
                     )
                 ]
-            await self._scroll_until_stable(page, extractor, limit or self.config.max_results_per_query)
+            await self._scroll_until_stable(page, extract_current_page, limit or self.config.max_results_per_query)
             html = await page.content()
-            links = extractor(html)
+            links = extract_current_page(html)
             return links[: limit or self.config.max_results_per_query]
         except Exception as exc:
             LOGGER.error("Playwright discovery failed for %s: %s", url, exc)

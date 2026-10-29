@@ -1,0 +1,16 @@
+{
+  "segment": "segment-local",
+  "mode": "html",
+  "word_tokenizer": "unicode",
+  "input_dir": "input/segment-local",
+  "output_dir": "output/segment-local",
+  "model_cache": "../models_cache",
+  "tokenizer_path": "../models_cache/aragpt2_base_tokenizer/tokenizer.json",
+  "pdf_classifier_path": "../models_cache/xgb_ocr_classifier/xgb_classifier.ubj",
+  "layout_model_path": "../models_cache/heron/heron_int8_quant.xml",
+  "ocr_model": null,
+  "ocr_endpoint": null,
+  "workers_io": 1,
+  "workers_cpu": 1,
+  "workers_heavy": 1
+}

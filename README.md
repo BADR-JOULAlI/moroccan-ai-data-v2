@@ -202,6 +202,24 @@ uv run python -m src.main mvp --max-links 800 --min-darija-density 0.15
 
 Ce flux execute uniquement les seeds de type site web. Les seeds YouTube, Facebook, Kaggle, HuggingFace et GitHub sont ignorees.
 
+La meme politique s'applique aux liens enfants, aux destinations des redirections,
+a l'expansion du catalogue et a l'export vers le crawler. Les requetes du
+collecteur consultent `robots.txt` avant de demander le contenu. Une interdiction
+ou des regles momentanement indisponibles suspendent la collecte de cette URL;
+une erreur reseau n'est pas presentee comme une interdiction definitive.
+
+`--min-darija-density` agit sur le texte du corps de la page, sans utiliser le
+titre ou le nom de la source pour relever sa densite. L'arabe standard, le
+contenu parallele francais-Darija confirme et la culture marocaine attestee dans
+le texte restent des exceptions. Les PDF sans texte extrait restent disponibles
+pour revue humaine et extraction ulterieure. La valeur `0` desactive seulement
+ce filtre linguistique.
+
+Les candidats bloques sont traces dans `data/intermediate/blocked_candidates.jsonl`.
+Les pages sous le seuil sont conservees dans `data/intermediate/rejected_linguistic.jsonl`,
+avec leur densite et motif, sans alimenter le catalogue actif. Une selection vide
+est exportee telle quelle, sans relancer automatiquement la collecte.
+
 Ce flux execute :
 
 ```text
@@ -277,6 +295,12 @@ moroccan_sources_collector/data/output/crawl_manifest.jsonl
 
 `crawler_urls.txt` contient uniquement les URLs acceptees manuellement.
 
+L'export exige aussi une URL HTTP(S) absolue dans le perimetre des sites web
+et un statut `Robots_txt` egal a `Oui` dans le fichier de revue. Une decision
+`accept` ne permet pas de contourner ces controles. Le resume d'export donne
+le nombre de liens retenus, ecartes et leurs motifs. Si les robots etaient
+indisponibles, relancer la verification avant de valider le lien.
+
 ## Lancement du crawler
 
 Depuis la racine du depot :
@@ -338,6 +362,34 @@ logs/<prefix>.failed_urls.txt
 
 ## Lancement de l'extraction Datatrove
 
+Le point d'entree charge sa configuration et verifie les ressources avant les
+modeles. `--help` fonctionne sans les dependances PDF. `--check-only` produit un
+rapport JSON, ne cree aucune sortie et ne contacte aucun serveur OCR.
+
+Pour commencer par le mode HTML, depuis le dossier `datatrove_extraction` :
+
+```bash
+uv run --no-project --with-requirements ../requirements-html.txt python process.py --config extraction.example.json --check-only
+uv run --no-project --with-requirements ../requirements-html.txt python process.py --config extraction.example.json --validate-warc
+```
+
+Adapter d'abord les chemins du JSON vers les WARC et un tokenizer local valide.
+Les chemins JSON sont relatifs au fichier de configuration; les chemins passes
+en options sont relatifs au dossier courant. L'exemple utilise explicitement le
+profil de mots `unicode`, sans modele linguistique natif. Il permet les tests
+locaux, mais ses limites de mots ne sont pas identiques a celles de `spacy`.
+Le profil historique `spacy` reste la valeur par defaut hors de cet exemple.
+
+Le mode `full` exige en plus le classifieur PDF, le XML et les poids BIN
+OpenVINO, un dossier d'artefacts Docling local et les champs `ocr_model` et
+`ocr_endpoint`. Ces valeurs ne sont plus des chemins HPC ou serveurs implicites.
+Le controle de presence ne charge pas les poids et ne prouve pas que le serveur
+est joignable. Le mode PDF/OCR complet reste a valider avec ces ressources.
+
+Les parametres sont enregistres dans `run_config.json`. Pour changer de profil,
+de segment, de chemins ou de nombre de travailleurs, choisir un nouveau dossier
+de sortie; les sorties existantes d'une autre configuration ne sont pas reutilisees.
+
 Les WARC doivent etre places dans :
 
 ```text
@@ -350,23 +402,24 @@ Exemple :
 datatrove_extraction/input/segment-2026-07/site_001/*.warc.gz
 ```
 
-Puis lancer :
+Copier `extraction.example.json` vers `extraction.local.json`, puis adapter les
+chemins d'entree, de sortie et du tokenizer. Avec ces ressources preparees :
 
 ```bash
 cd crawler_project-main/crawler_project-main/datatrove_extraction
-uv run process.py --segment segment-2026-07
+uv run process.py --config extraction.local.json
 ```
 
 Valider les WARC avant traitement :
 
 ```bash
-uv run process.py --segment segment-2026-07 --validate-warc
+uv run process.py --config extraction.local.json --validate-warc
 ```
 
 Valider et tenter une reparation automatique :
 
 ```bash
-uv run process.py --segment segment-2026-07 --validate-warc --auto-repair
+uv run process.py --config extraction.local.json --validate-warc --auto-repair
 ```
 
 Sorties principales :
@@ -412,7 +465,7 @@ Extraction :
 
 ```bash
 cd ../datatrove_extraction
-uv run process.py --segment segment-2026-07
+uv run process.py --config extraction.local.json
 ```
 
 ## Tests
@@ -435,6 +488,40 @@ Compilation rapide du script d'extraction :
 ```bash
 uv run python -m py_compile crawler_project-main/crawler_project-main/datatrove_extraction/process.py
 ```
+
+Tests de regression du crawler et de l'extraction, depuis leur racine :
+
+```bash
+cd crawler_project-main/crawler_project-main
+uv run --no-project --with-requirements requirements-test.txt python -m pytest tests crawling/tests -q
+```
+
+Ces tests utilisent des archives WARC generees localement, un faux `wget` et
+des reponses OCR simulees. Ils ne lancent aucun crawl ni telechargement de modele.
+Bash est requis pour les tests du script de crawl (Git Bash sous Windows).
+Le fichier `requirements-test.txt` suffit pour ces regressions sans installer
+l'ensemble des dependances PDF/OCR du projet.
+
+Le test `tests/test_local_html_pipeline.py` execute aussi le collecteur avec
+des reponses HTTP locales simulees, une revue humaine de test, de vraies archives
+WARC, puis l'extraction HTML, les filtres qualite et MinHash reels. Il verifie
+le meme resultat avec un et deux travailleurs. Son petit tokenizer de tokens
+est genere localement pour le test, sans representer un modele de production.
+
+L'extraction normale lit desormais tous les documents du segment, sans plafond
+de 15 documents par tache. Tout code Wget non nul produit un bilan d'echec, ajoute
+les entrees du lot concerne au fichier de reprise et termine le script avec le
+code 3. La reprise se fait au niveau du lot : certaines URL du lot peuvent deja
+avoir ete telechargees.
+
+Voir [le suivi de fiabilisation](RELIABILITY.md) pour le perimetre des corrections
+et les points qui restent a traiter avant un traitement complet.
+
+Le mode navigateur du collecteur applique aussi les controles URL/robots aux
+requetes et resout les redirections HTTP avant navigation. Une redirection qui
+apparait seulement pendant le rendu est refusee et journalisee, meme si sa
+destination serait autorisee. Les tests de cette protection utilisent des
+routes simulees; ils ne remplacent pas un essai avec Chromium.
 
 ## Perimetre linguistique V1
 

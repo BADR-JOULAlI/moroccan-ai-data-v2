@@ -168,13 +168,16 @@ def postprocess_extract(document: Document) -> Document | None:
             content = f"<--- stop_reason_{stop_reason} --->"
         page_dict[i] = content
 
-    offsets = [0]
+    pages = list(page_dict.values())
+    document.text = "\n".join(pages)
+    offsets = []
     running = 0
-    for page in page_dict.values():
+    for index, page in enumerate(pages):
         running += len(page)
+        # Page slices include their separator; the last offset covers all text.
+        if index < len(pages) - 1:
+            running += 1
         offsets.append(running)
-    offsets = offsets[1:]
-    document.text = "\n".join(page_dict.values())
 
     extraction_metadata = {
         "page_offsets": offsets,

@@ -32,9 +32,10 @@ class DoclingPostProcessingOptions:
     fix_page_numbers: bool = True
 
 class DoclingExtractor(BaseMediaExtractor):
-    def __init__(self, timeout: int = 10*60, post_processing_options: DoclingPostProcessingOptions = DoclingPostProcessingOptions(), exclusion_writer: Optional[DiskWriter] = None):
+    def __init__(self, timeout: int = 10*60, post_processing_options: DoclingPostProcessingOptions = DoclingPostProcessingOptions(), exclusion_writer: Optional[DiskWriter] = None, artifacts_path: Optional[Path] = None):
         docling_timeout = timeout - 2 if timeout > 2 else None
         pipeline_options = PdfPipelineOptions(
+            artifacts_path=artifacts_path,
             do_table_structure=False,
             do_ocr=False,
             document_timeout=docling_timeout,

@@ -1,0 +1,6 @@
+# Offline regression tests; no OCR server or model downloads are required.
+pytest>=8,<10
+-r requirements-html.txt
+pandas>=2
+# The offline integration test runs the real collector before writing WARC.
+-r ../../moroccan_sources_collector/requirements.txt

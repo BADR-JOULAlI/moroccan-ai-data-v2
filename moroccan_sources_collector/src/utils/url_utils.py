@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from urllib.parse import parse_qsl, unquote, urlencode, urljoin, urlparse, urlunparse
+from urllib.parse import parse_qsl, urlencode, urljoin, urlparse, urlunparse
 import hashlib
 
 import tldextract
@@ -30,7 +30,9 @@ def normalize_url(url: str, base_url: str | None = None) -> str:
     """Normalise une valeur afin de rendre les comparaisons et d?duplications fiables."""
     if base_url:
         url = urljoin(base_url, url)
-    parsed = urlparse(unquote(url.strip()))
+    # Parse before decoding: encoded separators are part of paths/query values.
+    # parse_qsl below decodes query components once; urlencode re-encodes them.
+    parsed = urlparse(url.strip())
     scheme = (parsed.scheme or "https").lower()
     netloc = parsed.netloc.lower()
     if netloc.startswith("www."):

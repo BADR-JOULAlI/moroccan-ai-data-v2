@@ -1,327 +1,126 @@
-# Datatrove Extraction Process
+# Extraction WARC configurable
 
-This process extracts clean text content from WARC (Web ARChive) files using a 5-stage pipeline with datatrove, Trafilatura, quality filtering, and MinHash-based deduplication. It processes WARC archives created by the crawling process and outputs deduplicated structured JSONL files with extracted text.
+Le pipeline extrait le texte des archives WARC, applique les filtres qualite,
+puis deduplique le corpus avec MinHash. Le mode HTML fonctionne independamment
+des modules PDF/OCR. Le mode complet exige leurs ressources locales et un serveur
+OCR configure.
 
-## Overview
+## Preparer la configuration
 
-The extraction pipeline consists of 5 stages:
+Copier `extraction.example.json` vers `extraction.local.json` et adapter les
+chemins des archives, des sorties et du tokenizer local. Les chemins JSON sont
+relatifs au fichier; les options de ligne de commande sont relatives au dossier
+courant. Les options explicites prennent priorite sur le JSON.
 
-**Stage 1: Initial Processing and Filtering**
-1. Reads WARC files from the `input/segment-2026-01/` directory (organized by website folders)
-2. Extracts text content using Trafilatura (precision-focused)
-3. Applies multiple quality filters in sequence:
-   - ArabicNormalizationFilter - Normalizes Arabic text
-   - GopherRepetitionFilter - Filters repetitive content (configured for Moroccan Arabic)
-   - GopherQualityFilter - Quality filtering based on Gopher criteria
-   - C4QualityFilter - Quality filtering based on C4 dataset criteria
-   - FineWebQualityFilter - Currently commented out (optional)
-4. Outputs filtered JSONL files to `output/base_processing/output/segment-2026-01/`
+Les archives attendues sont organisees ainsi :
 
-**Stage 2: MinHash Signature Computation**
-- Computes MinHash signatures for all documents to enable deduplication
-- Uses SHA1 hashing with 64-bit precision, 14 buckets, 8 hashes per bucket, and 5-grams
-- Outputs signatures to `output/minhash/segment-2026-01/signatures/`
+```text
+input/<segment>/<site>/*.warc.gz
+```
 
-**Stage 3: Bucket Creation**
-- Creates buckets from MinHash signatures for efficient duplicate detection
-- Outputs buckets to `output/minhash/segment-2026-01/buckets/`
+Le JSON peut designer un autre dossier d'entree contenant directement les
+sous-dossiers des sites. Le nom du segment est conserve dans les metadonnees.
 
-**Stage 4: Duplicate Clustering**
-- Clusters duplicate documents based on MinHash similarity
-- Outputs duplicate IDs to `output/minhash/segment-2026-01/remove_ids/`
+## Controler puis lancer le mode HTML
 
-**Stage 5: Deduplication and Final Output**
-- Filters out duplicate documents using the cluster information
-- Counts tokens using Arabic GPT-2 tokenizer (before and after deduplication)
-- Outputs final deduplicated JSONL files to `output/minhash/segment-2026-01/final_data/`
-
-## Prerequisites
-
-- Python 3.11 or higher
-- All dependencies installed via `uv sync` (from project root)
-
-## Getting Started
-
-### 1. Prepare WARC Files
-
-Place your WARC files (`.warc.gz`) in the `input/segment-2026-01/` directory, organized by website folders:
+Depuis ce dossier :
 
 ```bash
-cd datatrove_extraction
-# Create segment directory structure
-mkdir -p input/segment-2026-01
-
-# Copy WARC files from crawling output, maintaining folder structure
-# Each website should have its own folder
-cp -r ../crawling/crawl_out/<prefix>/<prefix> input/segment-2026-01/<website_name>/
+uv run --no-project --with-requirements ../requirements-html.txt python process.py --config extraction.local.json --check-only
+uv run --no-project --with-requirements ../requirements-html.txt python process.py --config extraction.local.json --validate-warc
 ```
 
-The script will automatically process all `.warc.gz` files in the `input/segment-2026-01/` directory and its subdirectories using the glob pattern `*/*.warc.gz`.
+`--help` fonctionne sans charger les dependances PDF. `--check-only` regroupe les
+ressources manquantes, sans creer de sortie ni contacter de serveur. Ce controle
+verifie la presence des fichiers; il ne valide pas le contenu des poids.
 
-### 2. Run the Extraction
+L'exemple choisit explicitement `word_tokenizer: "unicode"`. Ce profil de mots
+est deterministe et fonctionne sans modele linguistique natif. Ses limites de
+mots different de celles de `spacy`, qui reste le profil historique par defaut.
+Le choix influence les filtres et signatures; utiliser un nouveau dossier de
+sortie pour changer de profil. Le tokenizer de comptage des tokens est une
+ressource distincte : `tokenizer_path` doit designer un fichier JSON valide.
 
-Run the extraction process:
+## Mode PDF/OCR complet
+
+Le mode `full` exige les champs et ressources suivants :
+
+- `pdf_classifier_path` : classifieur XGBoost local;
+- `layout_model_path` : XML OpenVINO, accompagne du fichier BIN de meme nom;
+- `model_cache` : dossier d'artefacts Docling local;
+- `tokenizer_path` : tokenizer de comptage local;
+- `ocr_model` : nom du modele servi par l'endpoint;
+- `ocr_endpoint` : URL HTTP(S) explicite du serveur.
+
+Renseigner ces champs dans le JSON avant :
 
 ```bash
-cd datatrove_extraction
-uv run process.py
+uv run process.py --config extraction.local.json --mode full --check-only
+uv run process.py --config extraction.local.json --mode full --validate-warc
 ```
 
-**Optional: Validate WARC files before processing:**
+Cette invocation suppose les dependances completes du projet installees avec
+`uv sync`. Le preflight ne prouve ni la validite des poids, ni la disponibilite
+du serveur. Le chargement des vrais modeles et leur serialisation dans les
+travailleurs restent a valider. Docling recoit un dossier d'artefacts explicite
+pour eviter son telechargement de layout implicite.
+
+## Deroulement et sorties
+
+Le traitement HTML utilise le lecteur WARC, l'extracteur Trafilatura avec delai,
+la normalisation arabe, les filtres Gopher/C4, puis les signatures, buckets,
+clusters et filtres MinHash. Les archives sont lues sans limite d'echantillonnage.
+
+Sous le `output_dir` configure :
+
+```text
+run_config.json
+data_filtering/html/*.jsonl.zst
+base_processing/html/output/*.jsonl.zst
+base_processing/html/removed/<filtre>/
+minhash/html/{signatures,buckets,remove_ids}/
+final_data/html/*.jsonl.zst
+logs/stage*/
+```
+
+Le mode complet ajoute les sorties PDF, OCR et leur deduplication. Les
+metadonnees finales conservent le segment et les URL sources. Les positions et
+longueurs WARC sont des plages d'octets relisibles dans l'archive gzip originale.
+Les MIME HTTP explicites servent a router HTML et PDF; les types ambigus sans
+libmagic restent inconnus.
+
+Une sortie non vide avec une configuration differente ou absente est refusee.
+Utiliser `--output-dir` pour une nouvelle destination. La reprise Datatrove
+reutilise les completions seulement pour la meme configuration enregistree.
+
+## Validation et erreurs
+
+`--validate-warc` refuse les archives vides, les faux enregistrements ARC et les
+erreurs detectees sans demander de confirmation interactive. Pour une tentative
+de reparation avec sauvegardes conservees :
+
 ```bash
-# Validate WARC files (reports issues, doesn't repair)
-uv run process.py --validate-warc
-
-# Validate and automatically repair invalid WARC files
-uv run process.py --validate-warc --auto-repair
+uv run process.py --config extraction.local.json --validate-warc --auto-repair
 ```
 
-The process will execute 5 stages:
-- **Stage 1**: Read WARC files, extract text using Trafilatura, apply quality filters
-- **Stage 2**: Compute MinHash signatures for deduplication
-- **Stage 3**: Create buckets from signatures
-- **Stage 4**: Cluster duplicate documents
-- **Stage 5**: Filter duplicates, count tokens, write final output
+Codes de sortie : `0` succes, `2` configuration ou prerequis invalides,
+`1` echec pendant validation ou execution. Un document en echec d'extraction est
+trace dans les rejets; un echec d'arret d'un travailleur est fatal au traitement.
 
-Results are written to:
-- Filtered output: `output/base_processing/output/segment-2026-01/` (after Stage 1)
-- Rejected items: `output/base_processing/removed/<filter_name>/segment-2026-01/` (organized by filter type)
-- Final deduplicated output: `output/minhash/segment-2026-01/final_data/` (after Stage 5)
+## Tests locaux
 
-## Output Structure
+Depuis la racine du projet crawler, un dossier au-dessus :
 
-After running the extraction, you'll find:
-
-```
-output/
-├── base_processing/           # Stage 1 output
-│   ├── output/
-│   │   └── segment-2026-01/   # Filtered JSONL files (one per WARC)
-│   └── removed/               # Rejected content organized by filter type
-│       ├── 1_arabic_norm/
-│       │   └── segment-2026-01/
-│       ├── 2_gopher_rep/
-│       │   └── segment-2026-01/
-│       ├── 3_gopher_qual/
-│       │   └── segment-2026-01/
-│       └── 4_c4_qual/
-│           └── segment-2026-01/
-├── minhash/                   # Stages 2-5 output
-│   └── segment-2026-01/
-│       ├── signatures/        # Stage 2: MinHash signatures
-│       ├── buckets/           # Stage 3: Buckets
-│       ├── remove_ids/        # Stage 4: Duplicate IDs to remove
-│       └── final_data/        # Stage 5: Final deduplicated JSONL files
-└── logs/                      # Processing logs and statistics
-    ├── base_processing/       # Stage 1 logs
-    │   └── segment-2026-01/
-    └── minhash/               # Stages 2-5 logs
-        ├── signatures/
-        ├── buckets/
-        ├── clustering/
-        └── filtering/
-```
-
-## Configuration
-
-The extraction process can be customized by editing `process.py`:
-
-### Key Settings
-
-- **Segment**: Currently set to `segment-2026-01` (can be changed in `process.py`)
-- **Trafilatura**: Uses `favour_precision=True` for high-quality extraction
-- **Filters Applied** (in order, Stage 1):
-  1. ArabicNormalizationFilter - Normalizes Arabic text
-  2. GopherRepetitionFilter - Filters repetitive content (configured for Moroccan Arabic)
-  3. GopherQualityFilter - Quality filtering based on Gopher criteria
-  4. C4QualityFilter - Quality filtering based on C4 dataset criteria
-  5. FineWebQualityFilter - Currently commented out (optional)
-- **MinHash Deduplication**:
-  - Hash function: SHA1
-  - Precision: 64 bits
-  - Buckets: 14
-  - Hashes per bucket: 8
-  - N-grams: 5
-- **TokensCounter**: Uses Arabic GPT-2 tokenizer from `models_cache/aragpt2_base_tokenizer/tokenizer.json`
-- **Parallelism**: 
-  - Tasks: Automatically set to number of website folders in input directory
-  - Workers: Automatically set to `CPU_COUNT - 1` (or 1 if single core)
-
-### Customizing the Pipeline
-
-You can modify `process.py` to:
-- Change the segment name (`SEGMENT_TO_PROCESS`)
-- Change extraction settings (e.g., `favour_precision=False` for speed)
-- Adjust filtering parameters
-- Enable FineWebQualityFilter (uncomment line 87-89)
-- Add additional filters or processors
-- Change MinHash configuration (buckets, hashes, n-grams)
-- Modify parallelism settings (tasks/workers)
-- Change output paths
-
-### WARC Validation
-
-The pipeline includes optional WARC file validation:
-- `--validate-warc`: Validates WARC file integrity before processing
-- `--auto-repair`: Automatically repairs invalid WARC files (requires `--validate-warc`)
-- Validation creates backups before repairing files
-- Invalid files are reported with detailed error messages
-
-## Output Format
-
-Each JSONL file (compressed as `.jsonl.gz`) contains one JSON object per line, with extracted text and metadata:
-
-```json
-{
-  "id": "unique_document_id",
-  "text": "Extracted clean text content...",
-  "url": "https://example.com/page",
-  "metadata": {
-    "title": "Page Title",
-    "author": "Author Name",
-    "date": "2024-01-01",
-    ...
-  },
-  "tokenizer_name_or_path": "path/to/tokenizer",
-  "tokens": 1234
-}
-```
-
-Note: Output files are compressed with gzip (`.jsonl.gz` format).
-
-## Processing Details
-
-### Stage 1: Text Extraction and Filtering
-
-**Trafilatura Extractor:**
-- **Mode**: Precision-focused (`favour_precision=True`)
-- Extracts main content, title, author, date, and other metadata
-- Handles various HTML structures and content types
-- Removes navigation, headers, footers, and other boilerplate
-- Timeout: 30 seconds per page
-
-**Quality Filters (applied in sequence):**
-1. **ArabicNormalizationFilter**: Normalizes Arabic text content
-2. **GopherRepetitionFilter**: Detects and filters repetitive content (configured for Moroccan Arabic language)
-3. **GopherQualityFilter**: Applies quality criteria from the Gopher dataset
-4. **C4QualityFilter**: Applies quality criteria from the C4 dataset
-5. **FineWebQualityFilter**: Currently commented out (optional, can be enabled)
-
-Rejected items from each filter are saved separately in `output/base_processing/removed/<filter_name>/segment-2026-01/` for review and analysis.
-
-### Stages 2-4: MinHash Deduplication
-
-**MinHash Configuration:**
-- Hash function: SHA1
-- Precision: 64 bits
-- Number of buckets: 14
-- Hashes per bucket: 8
-- N-gram size: 5
-
-**Process:**
-1. **Stage 2**: Computes MinHash signatures for all documents
-2. **Stage 3**: Creates buckets from signatures for efficient duplicate detection
-3. **Stage 4**: Clusters duplicate documents based on MinHash similarity
-
-### Stage 5: Final Deduplication and Token Counting
-
-**TokensCounter:**
-- Uses Arabic GPT-2 tokenizer from `models_cache/aragpt2_base_tokenizer/tokenizer.json`
-- Counts tokens before and after deduplication
-- Token counts are included in the output JSONL files
-
-**Deduplication:**
-- Filters out duplicate documents identified in Stage 4
-- Only unique documents are included in the final output
-
-## Troubleshooting
-
-**Issue**: No WARC files found
-- Ensure WARC files are in the `input/segment-2026-01/` directory
-- Check that files are organized in subdirectories (one folder per website)
-- Verify file extensions are `.warc.gz`
-- Check the segment name matches `SEGMENT_TO_PROCESS` in `process.py`
-
-**Issue**: Invalid WARC files
-- Run with `--validate-warc` to check file integrity
-- Use `--validate-warc --auto-repair` to automatically repair files
-- Check logs for specific error messages
-- Backups are created before repair attempts
-
-**Issue**: Memory errors
-- The pipeline automatically sets workers to `CPU_COUNT - 1`
-- Process WARC files in smaller batches by organizing them into separate segments
-- Increase system memory if possible
-- Reduce parallelism by manually setting `number_of_workers` in `process.py`
-
-**Issue**: Empty output files
-- Check that WARC files contain valid web content
-- Verify Trafilatura can extract content from the pages
-- Review logs in the `output/logs/` directory
-- Check rejected items in `output/base_processing/removed/` to see what was filtered
-
-**Issue**: Too many rejected items
-- Review files in `output/base_processing/removed/` to understand filtering
-- Check which filter is rejecting most content (each filter has its own subdirectory)
-- Adjust filter parameters in `process.py` if needed
-- Some websites may have high repetition rates or low quality content
-
-**Issue**: Deduplication taking too long
-- MinHash deduplication is computationally intensive
-- Processing time depends on the number of documents and system resources
-- Check logs in `output/logs/minhash/` for progress information
-
-## Logs
-
-The extraction process creates logs in the `output/logs/` directory:
-
-**Stage 1 logs** (`output/logs/base_processing/segment-2026-01/`):
-- Task-specific logs with processing progress
-- Statistics about extracted content per task
-- Completion markers for each task
-
-**Stages 2-5 logs** (`output/logs/minhash/`):
-- `signatures/` - MinHash signature computation logs
-- `buckets/` - Bucket creation logs
-- `clustering/` - Duplicate clustering logs
-- `filtering/` - Final deduplication and filtering logs
-
-Each stage also generates:
-- `executor.json` - Executor configuration and status
-- `stats.json` - Overall statistics
-
-## Integration with Crawling Process
-
-This extraction process is designed to work with WARC files created by the crawling process:
-
-1. **Crawling** → Creates WARC files in `crawling/crawl_out/<prefix>/<prefix>/`
-2. **Extraction** → Processes WARC files from `input/segment-2026-01/` directory (organized by website folders)
-3. **Dataset** → Final deduplicated output in `output/minhash/segment-2026-01/final_data/` (can be moved to `crawled_dataset/`)
-
-**Recommended workflow:**
 ```bash
-# 1. Crawl websites
-cd crawling
-./crawl_script.sh file.txt website_name
-
-# 2. Organize WARC files for extraction
-cd ../datatrove_extraction
-mkdir -p input/segment-2026-01
-cp -r ../crawling/crawl_out/website_name/website_name input/segment-2026-01/website_name
-
-# 3. Run extraction pipeline
-uv run process.py --validate-warc --auto-repair
-
-# 4. Final dataset is in output/minhash/segment-2026-01/final_data/
+uv run --no-project --with-requirements requirements-test.txt python -m pytest tests crawling/tests -q
 ```
 
-## Notes
+Le test `tests/test_local_html_pipeline.py` parcourt le collecteur sur reponses
+HTTP simulees, une revue humaine de fixture, des WARC reels, puis toute la chaine
+HTML. Il verifie filtrage, deduplication, provenance et compteurs avec un et deux
+travailleurs. Le tokenizer de comptage du test est genere localement.
 
-- The extraction process is CPU-intensive, especially with large WARC files and MinHash deduplication
-- Processing time depends on WARC file size, content complexity, and number of documents
-- Trafilatura's precision mode prioritizes quality over speed
-- MinHash deduplication requires significant computational resources for large datasets
-- The pipeline automatically scales parallelism based on available CPU cores
-- Rejected items are preserved for review and analysis in `output/base_processing/removed/`
-- Processing is organized by segments to allow batch processing of multiple website collections
-- The segment name (`segment-2026-01`) can be changed in `process.py` to process different batches
+Ces tests ne lancent pas de vrai Wget ni de serveur OCR. Le profil spaCy natif,
+Chromium reel et le mode PDF/OCR complet restent a verifier dans leur environnement
+cible. Le [guide racine](../../../README.md) et le [suivi](../../../RELIABILITY.md)
+detaillent les autres validations disponibles.
